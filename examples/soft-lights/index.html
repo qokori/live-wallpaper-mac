@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Soft lights</title>
+<style>
+  /* CSS only: three soft lights drift slowly; a fourth follows the pointer in interactive mode. */
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1020; }
+  .light {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 70vmax;
+    height: 70vmax;
+    margin: -35vmax 0 0 -35vmax;
+    border-radius: 50%;
+    will-change: transform;
+  }
+  .teal { background: radial-gradient(circle, rgba(43, 179, 166, 0.55), transparent 62%); animation: drift-teal 41s ease-in-out infinite alternate; }
+  .rose { background: radial-gradient(circle, rgba(214, 92, 140, 0.45), transparent 62%); animation: drift-rose 53s ease-in-out infinite alternate; }
+  .gold { background: radial-gradient(circle, rgba(232, 178, 74, 0.35), transparent 62%); animation: drift-gold 47s ease-in-out infinite alternate; }
+  .pointer {
+    width: 30vmax;
+    height: 30vmax;
+    margin: -15vmax 0 0 -15vmax;
+    background: radial-gradient(circle, rgba(170, 200, 255, 0.25), transparent 65%);
+    transition: transform 0.6s ease-out;
+  }
+  @keyframes drift-teal { from { transform: translate(-30vw, -20vh) scale(0.9); } to { transform: translate(25vw, 15vh) scale(1.2); } }
+  @keyframes drift-rose { from { transform: translate(30vw, 25vh) scale(1.1); } to { transform: translate(-20vw, -25vh) scale(0.85); } }
+  @keyframes drift-gold { from { transform: translate(5vw, 30vh) scale(0.8); } to { transform: translate(-5vw, -30vh) scale(1.15); } }
+</style>
+</head>
+<body>
+<div class="light teal"></div>
+<div class="light rose"></div>
+<div class="light gold"></div>
+<div class="light pointer"></div>
+<script>
+  const light = document.querySelector('.pointer');
+  addEventListener('pointermove', (event) => {
+    light.style.transform = `translate(${event.clientX - innerWidth / 2}px, ${event.clientY - innerHeight / 2}px)`;
+  });
+</script>
+</body>
+</html>
