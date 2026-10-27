@@ -1,16 +1,31 @@
 import Foundation
 
-/// A chosen video file. The bookmark follows the file if it is moved or renamed; the path is the fallback.
-public struct VideoRef: Codable, Equatable, Sendable {
-    public var path: String
+/// What a screen shows: a video file or a web page (an http(s) address, a local folder with index.html, or an .html file).
+public struct WallpaperSource: Codable, Equatable, Sendable {
+    public enum Kind: String, Codable, Sendable {
+        case video
+        case web
+    }
+
+    public var kind: Kind
+    /// A file or folder path, or an http(s) address for a remote page.
+    public var location: String
+    /// Finds a local file or folder after it is moved or renamed; the path is the fallback.
     public var bookmark: Data?
 
-    public init(path: String, bookmark: Data? = nil) {
-        self.path = path
+    public init(kind: Kind, location: String, bookmark: Data? = nil) {
+        self.kind = kind
+        self.location = location
         self.bookmark = bookmark
     }
 
-    public var fileName: String { (path as NSString).lastPathComponent }
+    public var isRemote: Bool { kind == .web && WebAddress.isRemote(location) }
+
+    /// Short name for the menu: the file or folder name, or the host of a remote page.
+    public var title: String {
+        if isRemote { return URL(string: location)?.host ?? location }
+        return (location as NSString).lastPathComponent
+    }
 }
 
 public enum AssignmentMode: String, Codable, Sendable {
@@ -18,21 +33,21 @@ public enum AssignmentMode: String, Codable, Sendable {
     case perScreen
 }
 
-/// Which video plays on which display. Displays are keyed by their CoreGraphics UUID, which survives
+/// Which source plays on which display. Displays are keyed by their CoreGraphics UUID, which survives
 /// reconnects and reboots (the numeric display ID does not).
 public struct WallpaperAssignments: Codable, Equatable, Sendable {
     public var mode: AssignmentMode
-    /// Video for all screens; in per-screen mode, the fallback for screens without their own.
-    public var shared: VideoRef?
-    public var perScreen: [String: VideoRef]
+    /// Source for all screens; in per-screen mode, the fallback for screens without their own.
+    public var shared: WallpaperSource?
+    public var perScreen: [String: WallpaperSource]
 
-    public init(mode: AssignmentMode = .sameForAll, shared: VideoRef? = nil, perScreen: [String: VideoRef] = [:]) {
+    public init(mode: AssignmentMode = .sameForAll, shared: WallpaperSource? = nil, perScreen: [String: WallpaperSource] = [:]) {
         self.mode = mode
         self.shared = shared
         self.perScreen = perScreen
     }
 
-    public func video(forDisplay uuid: String) -> VideoRef? {
+    public func source(forDisplay uuid: String) -> WallpaperSource? {
         switch mode {
         case .sameForAll: shared
         case .perScreen: perScreen[uuid] ?? shared

@@ -5,7 +5,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="LiveWallpaper"
-BUNDLE_ID="io.github.livewallpapermac.LiveWallpaper"
+BUNDLE_ID="io.github.qokori.LiveWallpaper"
 VERSION="$(tr -d '[:space:]' < "$ROOT/VERSION")"
 APP_DIR="$ROOT/build/$APP_NAME.app"
 INSTALL_DIR="$HOME/Applications"

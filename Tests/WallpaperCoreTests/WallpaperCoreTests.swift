@@ -36,32 +36,32 @@ import Testing
 }
 
 @Suite struct AssignmentTests {
-    let a = VideoRef(path: "/v/a.mov")
-    let b = VideoRef(path: "/v/b.mp4")
+    let a = WallpaperSource(kind: .video, location: "/v/a.mov")
+    let b = WallpaperSource(kind: .web, location: "/pages/waves")
 
     @Test func sameForAllIgnoresPerScreenChoices() {
         let assignments = WallpaperAssignments(mode: .sameForAll, shared: a, perScreen: ["X": b])
-        #expect(assignments.video(forDisplay: "X") == a)
-        #expect(assignments.video(forDisplay: "Y") == a)
+        #expect(assignments.source(forDisplay: "X") == a)
+        #expect(assignments.source(forDisplay: "Y") == a)
     }
 
     @Test func perScreenFallsBackToShared() {
         let assignments = WallpaperAssignments(mode: .perScreen, shared: a, perScreen: ["X": b])
-        #expect(assignments.video(forDisplay: "X") == b)
-        #expect(assignments.video(forDisplay: "new-monitor") == a)
+        #expect(assignments.source(forDisplay: "X") == b)
+        #expect(assignments.source(forDisplay: "new-monitor") == a)
     }
 
     @Test func nothingChosenMeansNoVideo() {
         let assignments = WallpaperAssignments(mode: .perScreen, perScreen: ["X": b])
-        #expect(assignments.video(forDisplay: "Y") == nil)
+        #expect(assignments.source(forDisplay: "Y") == nil)
         #expect(WallpaperAssignments().isEmpty)
     }
 
     @Test func survivesEncoding() throws {
-        let assignments = WallpaperAssignments(mode: .perScreen, shared: a, perScreen: ["X": VideoRef(path: "/v/c.mov", bookmark: Data([1, 2]))])
+        let assignments = WallpaperAssignments(mode: .perScreen, shared: a, perScreen: ["X": WallpaperSource(kind: .video, location: "/v/c.mov", bookmark: Data([1, 2]))])
         let decoded = try JSONDecoder().decode(WallpaperAssignments.self, from: JSONEncoder().encode(assignments))
         #expect(decoded == assignments)
-        #expect(b.fileName == "b.mp4")
+        #expect(a.title == "a.mov")
     }
 }
 

@@ -1,5 +1,4 @@
 import AppKit
-import AVFoundation
 
 /// Borderless window just above the desktop picture and below the Finder icons, on every Space, transparent to the mouse.
 final class WallpaperWindow: NSWindow {
@@ -7,12 +6,12 @@ final class WallpaperWindow: NSWindow {
     /// after a Space switch. Finder icons sit at kCGDesktopIconWindowLevel (desktop + 20).
     static let wallpaperLevel = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)) + 1)
 
-    let playerView = PlayerView()
-
-    init(frame: NSRect) {
+    init(frame: NSRect, content: NSView) {
         super.init(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
         level = Self.wallpaperLevel
         collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenNone]
+        // Always click-through, also for interactive web pages: those get the pointer from PointerForwarder,
+        // so the Finder icons above keep working.
         ignoresMouseEvents = true
         isOpaque = true
         backgroundColor = .black
@@ -23,7 +22,7 @@ final class WallpaperWindow: NSWindow {
         animationBehavior = .none
         isExcludedFromWindowsMenu = true
         displaysWhenScreenProfileChanges = true
-        contentView = playerView
+        contentView = content
         setFrame(frame, display: false)
     }
 
@@ -34,18 +33,12 @@ final class WallpaperWindow: NSWindow {
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
 }
 
-final class PlayerView: NSView {
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        wantsLayer = true
-        playerLayer.videoGravity = .resizeAspectFill
-        playerLayer.backgroundColor = NSColor.black.cgColor
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-
-    override func makeBackingLayer() -> CALayer { AVPlayerLayer() }
-
-    var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
+/// What fills a wallpaper window: a looping video or a web page.
+@MainActor
+protocol WallpaperContent: AnyObject {
+    var view: NSView { get }
+    /// `ready` when the first frame is on screen (video) or the page has loaded; `failed` when it cannot play.
+    func start(ready: @escaping @MainActor () -> Void, failed: @escaping @MainActor (Error) -> Void)
+    func setPlaying(_ playing: Bool)
+    func stop()
 }

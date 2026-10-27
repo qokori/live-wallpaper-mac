@@ -62,3 +62,14 @@ public enum PausePolicy {
         reasons(conditions, screenVisible: screenVisible).isEmpty
     }
 }
+
+extension PausePolicy {
+    /// Pause reasons for every screen at once. `visible` is each window's occlusion state: false while a fullscreen
+    /// app, another Space, Mission Control or the lock screen covers it, so only that screen pauses.
+    /// `ignoreOcclusion` keeps covered screens playing (measurements only).
+    public static func plan(
+        _ conditions: SystemConditions, visible: [String: Bool], ignoreOcclusion: Bool = false
+    ) -> [String: [PauseReason]] {
+        visible.mapValues { reasons(conditions, screenVisible: ignoreOcclusion || $0) }
+    }
+}

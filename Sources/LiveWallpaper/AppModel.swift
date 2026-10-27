@@ -1,7 +1,20 @@
 import AppKit
+import AVFoundation
 import Observation
 import UniformTypeIdentifiers
 import WallpaperCore
+
+enum SourceError: LocalizedError {
+    case noIndexPage
+    case badAddress
+
+    var errorDescription: String? {
+        switch self {
+        case .noIndexPage: "В папке нет index.html"
+        case .badAddress: "Это не адрес http или https"
+        }
+    }
+}
 
 /// Settings, persisted in UserDefaults, and the glue between the menu, the system monitor and the windows.
 @MainActor
@@ -11,6 +24,8 @@ final class AppModel {
         static let assignments = "assignments"
         static let pauseOnBattery = "pauseOnBattery"
         static let syncSystemWallpaper = "syncSystemWallpaper"
+        static let webInteractive = "webInteractive"
+        static let webFrameRate = "webFrameRate"
     }
 
     var assignments: WallpaperAssignments {
@@ -41,6 +56,22 @@ final class AppModel {
         }
     }
 
+    /// Clicks and pointer movement on the bare desktop reach web wallpapers.
+    var webInteractive: Bool {
+        didSet {
+            defaults.set(webInteractive, forKey: Key.webInteractive)
+            pointer.setEnabled(webInteractive)
+        }
+    }
+
+    /// 30 or 60 frames per second for web wallpapers.
+    var webFrameRate: Int {
+        didSet {
+            defaults.set(webFrameRate, forKey: Key.webFrameRate)
+            controller.setWebFrameRate(webFrameRate)
+        }
+    }
+
     var launchAtLogin: Bool {
         didSet {
             guard launchAtLogin != LaunchAtLogin.isEnabled else { return }
@@ -62,27 +93,37 @@ final class AppModel {
     @ObservationIgnored private let defaults = UserDefaults.standard
     @ObservationIgnored private let controller = WallpaperController()
     @ObservationIgnored private let monitor = SystemMonitor()
+    @ObservationIgnored private let pointer = PointerForwarder()
 
     init() {
-        let data = UserDefaults.standard.data(forKey: Key.assignments)
+        let defaults = UserDefaults.standard
+        let data = defaults.data(forKey: Key.assignments)
         assignments = data.flatMap { try? JSONDecoder().decode(WallpaperAssignments.self, from: $0) } ?? WallpaperAssignments()
-        pauseOnBattery = UserDefaults.standard.bool(forKey: Key.pauseOnBattery)
-        syncSystemWallpaper = UserDefaults.standard.object(forKey: Key.syncSystemWallpaper) as? Bool ?? true
+        pauseOnBattery = defaults.bool(forKey: Key.pauseOnBattery)
+        syncSystemWallpaper = defaults.object(forKey: Key.syncSystemWallpaper) as? Bool ?? true
+        webInteractive = defaults.bool(forKey: Key.webInteractive)
+        webFrameRate = defaults.integer(forKey: Key.webFrameRate) == 60 ? 60 : 30
         launchAtLogin = LaunchAtLogin.isEnabled
     }
 
     func start() {
+        controller.makeContent = { [weak self] source, label in
+            guard let self else { throw CocoaError(.userCancelled) }
+            return try self.makeContent(for: source, label: label)
+        }
         controller.onChange = { [weak self] in self?.refreshScreens() }
-        controller.onShown = { [weak self] uuid, video in
-            guard let self, self.syncSystemWallpaper else { return }
+        controller.onShown = { [weak self] uuid, source in
+            guard let self, self.syncSystemWallpaper, source.kind == .video else { return }
             Task {
-                await SystemWallpaper.applyFirstFrame(of: video, toDisplay: uuid)
+                await SystemWallpaper.applyFirstFrame(of: source.resolvedURL, toDisplay: uuid)
                 self.canRestoreWallpaper = SystemWallpaper.hasOriginals
             }
         }
-        controller.onFailure = { video, error in
-            Self.alert("Не удалось воспроизвести «\(video.lastPathComponent)»", error.localizedDescription)
+        controller.onFailure = { source, error in
+            Self.alert("Не удалось показать «\(source.title)»", error.localizedDescription)
         }
+        pointer.targets = { [weak self] in self?.controller.webTargets.filter { $0.content.isPlaying } ?? [] }
+        pointer.setEnabled(webInteractive)
         monitor.onChange = { [weak self] in self?.pushConditions() }
         monitor.onWake = { [weak self] in self?.reconcile() }
         monitor.start()
@@ -105,55 +146,76 @@ final class AppModel {
     // MARK: Menu actions
 
     var statusLine: String {
-        let withVideo = screens.filter { $0.video != nil }
-        guard !withVideo.isEmpty else { return assignments.isEmpty ? "Видео не выбрано" : "Загрузка…" }
-        let playing = withVideo.filter(\.playing).count
-        if playing == withVideo.count {
-            return withVideo.count == 1 ? "Играет" : "Играет на всех экранах (\(playing))"
+        let withSource = screens.filter { $0.source != nil }
+        guard !withSource.isEmpty else { return assignments.isEmpty ? "Обои не выбраны" : "Загрузка…" }
+        let playing = withSource.filter(\.playing).count
+        if playing == withSource.count {
+            return withSource.count == 1 ? "Играет" : "Играет на всех экранах (\(playing))"
         }
-        if playing > 0 { return "Играет на \(playing) из \(withVideo.count) экранов" }
-        let reason = withVideo.compactMap(\.reasons.first).min { $0.priority < $1.priority }
+        if playing > 0 { return "Играет на \(playing) из \(withSource.count) экранов" }
+        let reason = withSource.compactMap(\.reasons.first).min { $0.priority < $1.priority }
         return "Пауза: " + (reason?.title ?? "")
     }
 
     func chooseVideo(forDisplay uuid: String?) {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.movie]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        if let uuid, let screen = screens.first(where: { $0.id == uuid }) {
-            panel.message = "Видео для экрана «\(screen.name)» (mp4, mov, HEVC)"
-        } else {
-            panel.message = perScreen ? "Видео для экранов без своего видео" : "Видео для всех экранов (mp4, mov, HEVC)"
-        }
-        NSApp.activate()
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        setVideo(url, forDisplay: uuid)
+        panel.message = panelMessage("Видео (mp4, mov, HEVC)", uuid)
+        guard let url = run(panel) else { return }
+        setSource(WallpaperSource(kind: .video, location: url.path, bookmark: try? url.bookmarkData()), forDisplay: uuid)
     }
 
-    /// Also used by `--video <path>` on the command line.
-    func setVideo(_ url: URL, forDisplay uuid: String?) {
+    func chooseWebFolder(forDisplay uuid: String?) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.allowedContentTypes = [.html]
+        panel.message = panelMessage("Папка с index.html или файл .html", uuid)
+        guard let url = run(panel) else { return }
+        setSource(WallpaperSource(kind: .web, location: url.path, bookmark: try? url.bookmarkData()), forDisplay: uuid)
+    }
+
+    func enterWebAddress(forDisplay uuid: String?) {
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 24))
+        field.placeholderString = "https://example.com/wallpaper/"
+        if let current = assignments.shared, current.isRemote { field.stringValue = current.location }
+        let alert = NSAlert()
+        alert.messageText = "Адрес веб-страницы"
+        alert.informativeText = panelMessage("Страница откроется на рабочем столе", uuid)
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Открыть")
+        alert.addButton(withTitle: "Отмена")
+        alert.window.initialFirstResponder = field
+        NSApp.activate()
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        guard let url = WebAddress.normalize(field.stringValue) else {
+            Self.alert("Неверный адрес", SourceError.badAddress.localizedDescription)
+            return
+        }
+        setSource(WallpaperSource(kind: .web, location: url.absoluteString), forDisplay: uuid)
+    }
+
+    /// Also used by the command line (`--video`, `--web`, `--video-for`, `--web-for`).
+    func setSource(_ source: WallpaperSource, forDisplay uuid: String?) {
         Task {
-            if let problem = await Self.problem(with: url) {
-                Self.alert("Это видео не подойдёт", problem)
+            if let problem = await Self.problem(with: source) {
+                Self.alert("Это не подойдёт", problem)
                 return
             }
-            let ref = VideoRef(path: url.path, bookmark: try? url.bookmarkData())
             if let uuid {
-                assignments.perScreen[uuid] = ref
+                assignments.perScreen[uuid] = source
                 assignments.mode = .perScreen
             } else {
-                assignments.shared = ref
+                assignments.shared = source
             }
         }
     }
 
-    func useSharedVideo(forDisplay uuid: String) {
+    func useShared(forDisplay uuid: String) {
         assignments.perScreen[uuid] = nil
     }
 
     /// Clears every choice and puts the previous desktop pictures back; frame sync stays on for the next video.
-    func removeVideos() {
+    func removeAll() {
         assignments = WallpaperAssignments(mode: assignments.mode)
         SystemWallpaper.restoreOriginals()
         canRestoreWallpaper = SystemWallpaper.hasOriginals
@@ -165,16 +227,39 @@ final class AppModel {
         canRestoreWallpaper = SystemWallpaper.hasOriginals
     }
 
-    func ownVideo(forDisplay uuid: String) -> String? {
-        assignments.perScreen[uuid]?.fileName
+    func ownSource(forDisplay uuid: String) -> String? {
+        assignments.perScreen[uuid]?.title
     }
 
-    var sharedVideoName: String? { assignments.shared?.fileName }
+    var sharedTitle: String? { assignments.shared?.title }
 
     // MARK: Plumbing
 
+    private func makeContent(for source: WallpaperSource, label: String) throws -> WallpaperContent {
+        switch source.kind {
+        case .video:
+            return VideoContent(url: source.resolvedURL, label: label)
+        case .web where source.isRemote:
+            guard let url = WebAddress.normalize(source.location) else { throw SourceError.badAddress }
+            return WebContent(target: .remote(url), frameRate: webFrameRate, label: label)
+        case .web:
+            let page = try Self.localPage(source.resolvedURL)
+            return WebContent(target: .local(page), frameRate: webFrameRate, label: label)
+        }
+    }
+
+    private static func localPage(_ url: URL) throws -> LocalPage {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            throw CocoaError(.fileReadNoSuchFile)
+        }
+        let page = LocalPage.resolve(path: url.path, isDirectory: isDirectory.boolValue)
+        guard FileManager.default.fileExists(atPath: page.entry) else { throw SourceError.noIndexPage }
+        return page
+    }
+
     private func reconcile() {
-        controller.reconcile { [assignments] uuid in assignments.video(forDisplay: uuid)?.resolvedURL }
+        controller.reconcile { [assignments] uuid in assignments.source(forDisplay: uuid) }
     }
 
     private func pushConditions() {
@@ -197,23 +282,42 @@ final class AppModel {
 
     private func applyFramesToAllScreens() {
         for screen in screens {
-            guard let video = screen.video else { continue }
+            guard let source = screen.source, source.kind == .video else { continue }
             Task {
-                await SystemWallpaper.applyFirstFrame(of: video, toDisplay: screen.id)
+                await SystemWallpaper.applyFirstFrame(of: source.resolvedURL, toDisplay: screen.id)
                 canRestoreWallpaper = SystemWallpaper.hasOriginals
             }
         }
     }
 
-    private static func problem(with url: URL) async -> String? {
-        let asset = AVURLAsset(url: url)
-        do {
-            guard try await asset.load(.isPlayable) else { return "macOS не умеет воспроизводить этот файл." }
-            guard try await !asset.loadTracks(withMediaType: .video).isEmpty else { return VideoError.noVideoTrack.localizedDescription }
-        } catch {
-            return error.localizedDescription
+    private func panelMessage(_ text: String, _ uuid: String?) -> String {
+        if let uuid, let screen = screens.first(where: { $0.id == uuid }) { return "\(text) — экран «\(screen.name)»" }
+        return perScreen ? "\(text) — для экранов без своих обоев" : "\(text) — для всех экранов"
+    }
+
+    private func run(_ panel: NSOpenPanel) -> URL? {
+        panel.allowsMultipleSelection = false
+        NSApp.activate()
+        return panel.runModal() == .OK ? panel.url : nil
+    }
+
+    private static func problem(with source: WallpaperSource) async -> String? {
+        switch source.kind {
+        case .web where source.isRemote:
+            return WebAddress.normalize(source.location) == nil ? SourceError.badAddress.localizedDescription : nil
+        case .web:
+            do { _ = try localPage(source.resolvedURL) } catch { return error.localizedDescription }
+            return nil
+        case .video:
+            let asset = AVURLAsset(url: source.resolvedURL)
+            do {
+                guard try await asset.load(.isPlayable) else { return "macOS не умеет воспроизводить этот файл." }
+                guard try await !asset.loadTracks(withMediaType: .video).isEmpty else { return VideoError.noVideoTrack.localizedDescription }
+            } catch {
+                return error.localizedDescription
+            }
+            return nil
         }
-        return nil
     }
 
     private static func alert(_ title: String, _ text: String) {
@@ -225,10 +329,8 @@ final class AppModel {
     }
 }
 
-import AVFoundation
-
-extension VideoRef {
-    /// The bookmark finds the file after a move or rename; the stored path is the fallback.
+extension WallpaperSource {
+    /// Local file or folder: the bookmark finds it after a move or rename; the stored path is the fallback.
     var resolvedURL: URL {
         if let bookmark {
             var stale = false
@@ -236,7 +338,7 @@ extension VideoRef {
                 return url
             }
         }
-        return URL(filePath: path)
+        return URL(filePath: location)
     }
 }
 

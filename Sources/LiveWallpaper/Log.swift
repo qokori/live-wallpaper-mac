@@ -2,7 +2,7 @@ import Foundation
 import os
 
 enum Log {
-    static let app = Logger(subsystem: "io.github.livewallpapermac", category: "app")
+    static let app = Logger(subsystem: "io.github.qokori.LiveWallpaper", category: "app")
 
     /// LW_DIAG=1 mirrors events to stderr with an uptime stamp and turns on the loop seam meter (scripts/dev checks).
     static let diagnostics = ProcessInfo.processInfo.environment["LW_DIAG"] == "1"
