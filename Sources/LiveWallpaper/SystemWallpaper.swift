@@ -14,16 +14,18 @@ enum SystemWallpaper {
         URL.applicationSupportDirectory.appending(path: "LiveWallpaper/Frames", directoryHint: .isDirectory)
     }
 
-    static func applyFirstFrame(of video: URL, toDisplay uuid: String) async {
+    /// `scaling` is read once the frame is ready, so a choice changed meanwhile still wins.
+    static func applyFirstFrame(of video: URL, toDisplay uuid: String, scaling: () -> WallpaperScaling) async {
         do {
             let frame = try await firstFrame(of: video)
             guard let screen = NSScreen.screens.first(where: { $0.displayUUID == uuid }) else { return }
+            let scaling = scaling()
             rememberOriginal(of: screen, uuid: uuid)
             try NSWorkspace.shared.setDesktopImageURL(frame, for: screen, options: [
-                .imageScaling: NSImageScaling.scaleProportionallyUpOrDown.rawValue,
-                .allowClipping: true,
+                .imageScaling: scaling.desktopImageScaling,
+                .allowClipping: scaling.desktopImageAllowsClipping,
             ])
-            Log.event("screen \(uuid.prefix(8)): desktop picture = \(frame.lastPathComponent)")
+            Log.event("screen \(uuid.prefix(8)): desktop picture = \(frame.lastPathComponent), \(scaling.rawValue)")
         } catch {
             Log.event("screen \(uuid.prefix(8)): desktop picture not set: \(error.localizedDescription)")
         }

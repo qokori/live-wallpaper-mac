@@ -2,7 +2,7 @@ import AppKit
 import AVFoundation
 import WallpaperCore
 
-/// A looping video in an AVPlayerLayer, aspect fill.
+/// A looping video in an AVPlayerLayer; fill, fit or stretch as the scaling choice says.
 @MainActor
 final class VideoContent: WallpaperContent {
     private let url: URL
@@ -50,6 +50,10 @@ final class VideoContent: WallpaperContent {
             Log.event("\(label): \(url.lastPathComponent), \(String(format: "%.2f", loop.duration)) s loop")
             if Log.diagnostics { startSeamMeter() }
         }
+    }
+
+    func setScaling(_ scaling: WallpaperScaling) {
+        playerView.playerLayer.videoGravity = AVLayerVideoGravity(rawValue: scaling.videoGravity)
     }
 
     func setPlaying(_ playing: Bool) {

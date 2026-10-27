@@ -14,6 +14,7 @@ final class ScreenWallpaper {
     private var logged = false
     private(set) var isPlaying = false
     private(set) var pauseReasons: [PauseReason] = []
+    private(set) var scaling: WallpaperScaling = .fill
 
     var onVisibilityChange: (() -> Void)?
     var onReady: (() -> Void)?
@@ -69,6 +70,16 @@ final class ScreenWallpaper {
         guard window.frame != frame else { return }
         Log.event("screen \(shortID): frame \(NSStringFromRect(window.frame)) -> \(NSStringFromRect(frame))")
         window.setFrame(frame, display: true)
+    }
+
+    /// Returns whether a video changed its scaling; web pages ignore it.
+    @discardableResult
+    func setScaling(_ scaling: WallpaperScaling) -> Bool {
+        guard let video = content as? VideoContent, scaling != self.scaling else { return false }
+        self.scaling = scaling
+        video.setScaling(scaling)
+        Log.event("screen \(shortID): scaling \(scaling.rawValue)")
+        return true
     }
 
     func apply(_ reasons: [PauseReason]) {

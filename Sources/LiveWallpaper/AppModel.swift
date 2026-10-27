@@ -22,6 +22,7 @@ enum SourceError: LocalizedError {
 final class AppModel {
     private enum Key {
         static let assignments = "assignments"
+        static let scaling = "scaling"
         static let pauseOnBattery = "pauseOnBattery"
         static let syncSystemWallpaper = "syncSystemWallpaper"
         static let webInteractive = "webInteractive"
@@ -34,6 +35,15 @@ final class AppModel {
             if let data = try? JSONEncoder().encode(assignments) { defaults.set(data, forKey: Key.assignments) }
             controller.forgetFailures()
             reconcile()
+        }
+    }
+
+    /// Fill, fit or stretch, per screen like the sources; applies to videos and their desktop pictures.
+    var scaling: ScalingChoices {
+        didSet {
+            guard scaling != oldValue else { return }
+            if let data = try? JSONEncoder().encode(scaling) { defaults.set(data, forKey: Key.scaling) }
+            applyScaling()
         }
     }
 
@@ -99,6 +109,7 @@ final class AppModel {
         let defaults = UserDefaults.standard
         let data = defaults.data(forKey: Key.assignments)
         assignments = data.flatMap { try? JSONDecoder().decode(WallpaperAssignments.self, from: $0) } ?? WallpaperAssignments()
+        scaling = defaults.data(forKey: Key.scaling).flatMap { try? JSONDecoder().decode(ScalingChoices.self, from: $0) } ?? ScalingChoices()
         pauseOnBattery = defaults.bool(forKey: Key.pauseOnBattery)
         syncSystemWallpaper = defaults.object(forKey: Key.syncSystemWallpaper) as? Bool ?? true
         webInteractive = defaults.bool(forKey: Key.webInteractive)
@@ -111,13 +122,11 @@ final class AppModel {
             guard let self else { throw CocoaError(.userCancelled) }
             return try self.makeContent(for: source, label: label)
         }
+        controller.scalingFor = { [weak self] uuid in self?.scaling(forDisplay: uuid) ?? .fill }
         controller.onChange = { [weak self] in self?.refreshScreens() }
         controller.onShown = { [weak self] uuid, source in
             guard let self, self.syncSystemWallpaper, source.kind == .video else { return }
-            Task {
-                await SystemWallpaper.applyFirstFrame(of: source.resolvedURL, toDisplay: uuid)
-                self.canRestoreWallpaper = SystemWallpaper.hasOriginals
-            }
+            self.applyFrame(of: source, toDisplay: uuid)
         }
         controller.onFailure = { source, error in
             Self.alert("Не удалось показать «\(source.title)»", error.localizedDescription)
@@ -214,7 +223,7 @@ final class AppModel {
         assignments.perScreen[uuid] = nil
     }
 
-    /// Clears every choice and puts the previous desktop pictures back; frame sync stays on for the next video.
+    /// Clears every choice and puts the previous desktop pictures back; frame sync and scaling stay for the next video.
     func removeAll() {
         assignments = WallpaperAssignments(mode: assignments.mode)
         SystemWallpaper.restoreOriginals()
@@ -232,6 +241,10 @@ final class AppModel {
     }
 
     var sharedTitle: String? { assignments.shared?.title }
+
+    func scaling(forDisplay uuid: String) -> WallpaperScaling {
+        scaling.scaling(forDisplay: uuid, mode: assignments.mode)
+    }
 
     // MARK: Plumbing
 
@@ -260,6 +273,14 @@ final class AppModel {
 
     private func reconcile() {
         controller.reconcile { [assignments] uuid in assignments.source(forDisplay: uuid) }
+        applyScaling()
+    }
+
+    /// Videos on screen follow the scaling at once; their desktop pictures get it too when frame sync is on.
+    private func applyScaling() {
+        let changed = controller.refreshScaling()
+        guard syncSystemWallpaper else { return }
+        for (uuid, source) in changed { applyFrame(of: source, toDisplay: uuid) }
     }
 
     private func pushConditions() {
@@ -283,10 +304,16 @@ final class AppModel {
     private func applyFramesToAllScreens() {
         for screen in screens {
             guard let source = screen.source, source.kind == .video else { continue }
-            Task {
-                await SystemWallpaper.applyFirstFrame(of: source.resolvedURL, toDisplay: screen.id)
-                canRestoreWallpaper = SystemWallpaper.hasOriginals
+            applyFrame(of: source, toDisplay: screen.id)
+        }
+    }
+
+    private func applyFrame(of source: WallpaperSource, toDisplay uuid: String) {
+        Task {
+            await SystemWallpaper.applyFirstFrame(of: source.resolvedURL, toDisplay: uuid) { [weak self] in
+                self?.scaling(forDisplay: uuid) ?? .fill
             }
+            canRestoreWallpaper = SystemWallpaper.hasOriginals
         }
     }
 
@@ -339,6 +366,16 @@ extension WallpaperSource {
             }
         }
         return URL(filePath: location)
+    }
+}
+
+extension WallpaperScaling {
+    var title: String {
+        switch self {
+        case .fill: "Заполнить"
+        case .fit: "По размеру"
+        case .stretch: "Растянуть"
+        }
     }
 }
 

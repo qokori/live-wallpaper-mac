@@ -37,6 +37,8 @@ final class WallpaperController {
     /// LW_IGNORE_OCCLUSION=1 keeps playing under other windows (for measurements only).
     private let ignoreOcclusion = ProcessInfo.processInfo.environment["LW_IGNORE_OCCLUSION"] == "1"
 
+    /// How a display's video fills it; read when a window opens and by `refreshScaling()`.
+    var scalingFor: (String) -> WallpaperScaling = { _ in .fill }
     var makeContent: ((WallpaperSource, String) throws -> WallpaperContent)?
     var onChange: (() -> Void)?
     var onShown: ((String, WallpaperSource) -> Void)?
@@ -94,6 +96,15 @@ final class WallpaperController {
         onChange?()
     }
 
+    /// Applies the current scaling to every window. Returns the displays (with their source) whose video on screen
+    /// changed it and has no replacement loading: a replacement gets its desktop picture when shown.
+    func refreshScaling() -> [(String, WallpaperSource)] {
+        for (id, wallpaper) in pending { wallpaper.setScaling(scalingFor(id)) }
+        return active.compactMap { id, wallpaper in
+            wallpaper.setScaling(scalingFor(id)) && pending[id] == nil ? (id, wallpaper.source) : nil
+        }
+    }
+
     func setWebFrameRate(_ frameRate: Int) {
         for wallpaper in Array(active.values) + Array(pending.values) {
             (wallpaper.content as? WebContent)?.setFrameRate(frameRate)
@@ -131,6 +142,7 @@ final class WallpaperController {
             return
         }
         let wallpaper = ScreenWallpaper(displayUUID: id, source: source, content: content, frame: frame)
+        wallpaper.setScaling(scalingFor(id))
         wallpaper.onVisibilityChange = { [weak self] in self?.updatePlayback() }
         wallpaper.onReady = { [weak self, weak wallpaper] in
             guard let self, let wallpaper else { return }

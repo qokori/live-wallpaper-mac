@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import WallpaperCore
 
 struct MenuContent: View {
     @Bindable var model: AppModel
@@ -9,11 +10,21 @@ struct MenuContent: View {
         Divider()
         Text(model.perScreen ? "Общие обои: \(model.sharedTitle ?? "нет")" : "Обои: \(model.sharedTitle ?? "нет")")
         SourceButtons(model: model, display: nil)
+        Picker("Масштаб", selection: $model.scaling.shared) {
+            ForEach(WallpaperScaling.allCases, id: \.self) { Text($0.title).tag($0) }
+        }
+        .disabled(!model.assignments.scalingApplies(forDisplay: nil))
         Toggle("Своё на каждый экран", isOn: $model.perScreen)
         if model.perScreen {
             ForEach(model.screens) { screen in
                 Menu("\(screen.name): \(model.ownSource(forDisplay: screen.id) ?? "общие")") {
                     SourceButtons(model: model, display: screen.id)
+                    // A screen without its own choice follows the shared one, like its source.
+                    Picker("Масштаб", selection: $model.scaling.perScreen[screen.id]) {
+                        Text("Как общий").tag(WallpaperScaling?.none)
+                        ForEach(WallpaperScaling.allCases, id: \.self) { Text($0.title).tag(WallpaperScaling?.some($0)) }
+                    }
+                    .disabled(!model.assignments.scalingApplies(forDisplay: screen.id))
                     Divider()
                     Button("Как общие") { model.useShared(forDisplay: screen.id) }
                         .disabled(model.ownSource(forDisplay: screen.id) == nil)
