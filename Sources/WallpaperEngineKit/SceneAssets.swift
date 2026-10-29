@@ -32,10 +32,11 @@ public final class SceneAssets: @unchecked Sendable {
         var textures: [Texture] = []
         var index: [String: Int] = [:]
         var failed = Set<String>()
+        let budget = TexFile.Budget()
         for path in document.textures {
             do {
                 guard let bytes = files.data(path) else { throw TexFile.Failure.damaged("нет файла") }
-                let file = try TexFile(data: bytes)
+                let file = try TexFile(data: bytes, budget: budget)
                 switch file.payload {
                 case .pixels(let w, let h, _): textures.append(Texture(path: path, kind: "raw", width: w, height: h, file: file))
                 case .image: textures.append(Texture(path: path, kind: "image", width: file.imageWidth, height: file.imageHeight, file: file))
@@ -58,6 +59,19 @@ public final class SceneAssets: @unchecked Sendable {
 
     private let index: [String: Int]
 
+    /// Whether the scene has something to draw, found without unpacking any texture: the description reads, and a
+    /// layer's texture file exists. Cheap enough for a list of scenes.
+    public static func canDraw(files: EngineFileSystem, project: EngineProject) -> Bool {
+        guard let data = files.data(project.file ?? "scene.json"),
+              let document = try? SceneDocument(data: data, files: files, properties: project.properties)
+        else { return false }
+        return document.textures.contains { files.contains($0) }
+    }
+
+    /// Numbers the page gets must be finite: JSON cannot hold anything else.
+    private static func finite(_ value: Double) -> Double { value.isFinite ? value : 0 }
+    private static func finite(_ values: [Double]) -> [Double] { values.map(finite) }
+
     /// The scene as the page reads it.
     public func sceneJSON() -> Data {
         let list: [[String: Any]] = textures.enumerated().map { i, t in
@@ -65,19 +79,20 @@ public final class SceneAssets: @unchecked Sendable {
         }
         let drawn: [[String: Any]] = layers.map { l in
             [
-                "name": l.name, "tex": index[l.texture.lowercased()] ?? 0, "m": l.transform, "size": l.size, "alpha": l.alpha,
-                "color": l.color, "brightness": l.brightness, "blending": l.blending.rawValue, "mode": l.blendMode,
-                "depth": l.parallaxDepth,
+                "name": l.name, "tex": index[l.texture.lowercased()] ?? 0, "m": Self.finite(l.transform), "size": Self.finite(l.size),
+                "alpha": Self.finite(l.alpha), "color": Self.finite(l.color), "brightness": Self.finite(l.brightness),
+                "blending": l.blending.rawValue, "mode": l.blendMode, "depth": Self.finite(l.parallaxDepth),
             ]
         }
         let root: [String: Any] = [
-            "width": document.width, "height": document.height, "clear": document.clearColor,
+            "width": document.width, "height": document.height, "clear": Self.finite(document.clearColor),
             "parallax": [
-                "enabled": document.parallax.enabled, "amount": document.parallax.amount,
-                "delay": document.parallax.delay, "influence": document.parallax.mouseInfluence,
+                "enabled": document.parallax.enabled, "amount": Self.finite(document.parallax.amount),
+                "delay": Self.finite(document.parallax.delay), "influence": Self.finite(document.parallax.mouseInfluence),
             ] as [String: Any],
             "textures": list, "layers": drawn,
         ]
+        guard JSONSerialization.isValidJSONObject(root) else { return Data("{}".utf8) }
         return (try? JSONSerialization.data(withJSONObject: root, options: [.sortedKeys])) ?? Data("{}".utf8)
     }
 

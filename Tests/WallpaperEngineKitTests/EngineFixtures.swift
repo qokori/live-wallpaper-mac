@@ -44,6 +44,8 @@ enum EngineFixtures {
         var height: Int
         var bytes: [UInt8]
         var lz4 = false
+        /// The unpacked size written into the file when it is not the real one (a lie about a packed level).
+        var claimed: Int? = nil
     }
 
     static func lz4(_ bytes: [UInt8]) -> [UInt8] {
@@ -70,7 +72,7 @@ enum EngineFixtures {
             if container >= 4, mp4Flag == 1 { out += int32(1) + int32(2) + Array("{}".utf8) + [0] + int32(1) }
             out += int32(mip.width) + int32(mip.height)
             let stored = mip.lz4 ? lz4(mip.bytes) : mip.bytes
-            if container >= 2 { out += int32(mip.lz4 ? 1 : 0) + int32(mip.bytes.count) }
+            if container >= 2 { out += int32(mip.lz4 ? 1 : 0) + int32(mip.claimed ?? mip.bytes.count) }
             out += int32(stored.count) + stored
         }
         if !frames.isEmpty {

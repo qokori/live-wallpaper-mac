@@ -141,4 +141,56 @@ import Testing
         let slice = wrapped[3..<(3 + good.count)]
         #expect(try pixels(TexFile(data: slice)).2 == rgba2x1)
     }
+
+    // MARK: Memory limits
+
+    @Test func aLieAboutTheUnpackedSizeIsRefusedBeforeAnythingIsAllocated() {
+        // 4 bytes of LZ4 cannot make a gigabyte; the file says it does.
+        let bomb = EngineFixtures.tex(mips: [.init(width: 16384, height: 16384, bytes: [1, 2, 3, 4], lz4: true, claimed: 1 << 30)])
+        let budget = TexFile.Budget(limit: 64 << 20)
+        #expect(throws: TexFile.Failure.self) { try TexFile(data: bomb, budget: budget) }
+        #expect(budget.bytesUsed == 0)
+    }
+
+    @Test func honestlyPackedDataOverTheBudgetIsRefusedAndGivesTheBytesBack() throws {
+        // Zeros pack to almost nothing: a small file, 8 MiB of pixels.
+        let zeros = [UInt8](repeating: 0, count: 2048 * 1024 * 4)
+        let data = EngineFixtures.tex(mips: [.init(width: 2048, height: 1024, bytes: zeros, lz4: true)])
+        #expect(data.count < 200_000)
+        let small = TexFile.Budget(limit: 4 << 20)
+        #expect(throws: TexFile.Failure.self) { try TexFile(data: data, budget: small) }
+        #expect(small.bytesUsed == 0)
+        let roomy = TexFile.Budget(limit: 16 << 20)
+        _ = try TexFile(data: data, budget: roomy)
+        #expect(roomy.bytesUsed == zeros.count)
+    }
+
+    @Test func oneBudgetCoversAllTexturesOfAScene() throws {
+        let one = [UInt8](repeating: 7, count: 1024 * 256 * 4)
+        let data = EngineFixtures.tex(mips: [.init(width: 1024, height: 256, bytes: one, lz4: true)])
+        let budget = TexFile.Budget(limit: (3 << 20) / 2)
+        _ = try TexFile(data: data, budget: budget)
+        #expect(budget.bytesUsed == one.count)
+        #expect(throws: TexFile.Failure.self) { try TexFile(data: data, budget: budget) }
+        #expect(budget.bytesUsed == one.count)
+    }
+
+    @Test func mipsAfterTheFirstAreNotUnpacked() throws {
+        let first = [UInt8](repeating: 9, count: 4 * 4 * 4)
+        // The second level claims a gigabyte; it is stepped over, so nothing is allocated or refused.
+        let data = EngineFixtures.tex(mips: [
+            .init(width: 4, height: 4, bytes: first, lz4: true),
+            .init(width: 2, height: 2, bytes: [1, 2, 3, 4], lz4: true, claimed: 1 << 30),
+        ])
+        let budget = TexFile.Budget(limit: 1 << 20)
+        let file = try TexFile(data: data, budget: budget)
+        guard case .pixels(4, 4, let rgba) = file.payload else { Issue.record("not pixels"); return }
+        #expect(Array(rgba) == first)
+        #expect(budget.bytesUsed == first.count)
+    }
+
+    @Test func aHugePictureIsRefusedWithoutDecoding() {
+        let data = EngineFixtures.tex(mips: [.init(width: 16384, height: 16384, bytes: [0, 0, 0, 0])])
+        #expect(throws: TexFile.Failure.self) { try TexFile(data: data) }
+    }
 }

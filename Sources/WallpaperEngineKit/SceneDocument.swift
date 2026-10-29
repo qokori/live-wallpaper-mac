@@ -65,8 +65,8 @@ public struct SceneDocument: Sendable {
         let values = Dictionary(properties.compactMap { p in p.valueJSON.flatMap(Self.fragment).map { (p.key, $0) } }, uniquingKeysWith: { a, _ in a })
         let general = root["general"] as? [String: Any] ?? [:]
         let projection = general["orthogonalprojection"] as? [String: Any]
-        width = Self.int(projection?["width"]) ?? 1920
-        height = Self.int(projection?["height"]) ?? 1080
+        width = Self.int(projection?["width"]).flatMap { (1...65536).contains($0) ? $0 : nil } ?? 1920
+        height = Self.int(projection?["height"]).flatMap { (1...65536).contains($0) ? $0 : nil } ?? 1080
         clearColor = Self.vector(Self.resolve(general["clearcolor"], values), count: 3) ?? [0, 0, 0]
         parallax = Parallax(
             enabled: Self.bool(Self.resolve(general["cameraparallax"], values)) ?? false,
@@ -79,6 +79,7 @@ public struct SceneDocument: Sendable {
         var byID: [Int: [String: Any]] = [:]
         for object in objects { if let id = Self.int(object["id"]) { byID[id] = object } }
         var skipped: [String] = []
+        var notes: [String] = []
         var layers: [Layer] = []
         var worlds: [Int: [Double]] = [:]
         var hidden = Set<Int>()
@@ -89,7 +90,12 @@ public struct SceneDocument: Sendable {
             let local = Self.local(object, values)
             var result = local
             if let parent = Self.int(object["parent"]), parent != id, depth < 32, byID[parent] != nil {
-                result = Self.multiply(world(of: parent, depth: depth + 1), local)
+                let chained = Self.multiply(world(of: parent, depth: depth + 1), local)
+                if chained.allSatisfy({ $0.isFinite && abs($0) <= Self.limit * 1e3 }) {
+                    result = chained
+                } else {
+                    notes.append("\(object["name"] as? String ?? "объект \(id)"): преобразование родителей вне допустимых пределов, родитель не учтён")
+                }
             }
             worlds[id] = result
             return result
@@ -105,6 +111,11 @@ public struct SceneDocument: Sendable {
         for (index, object) in objects.enumerated() {
             let id = Self.int(object["id"]) ?? -(index + 1)
             let name = (object["name"] as? String) ?? "объект \(id)"
+            // A value that is there but unusable (not a number, not finite, out of range) is left out; say so once.
+            for field in ["id", "parent", "alpha", "brightness", "color", "size", "origin", "scale", "angles", "colorBlendMode", "parallaxDepth"] {
+                guard Self.unusable(Self.resolve(object[field], values)) else { continue }
+                notes.append("\(name): поле \(field) отброшено (не число или вне допустимых пределов)")
+            }
             if let kind = ["particle", "sound", "text", "light", "shape"].first(where: { object[$0] != nil }) {
                 skipped.append("\(name): \(Self.reasons[kind] ?? kind)")
                 continue
@@ -143,7 +154,7 @@ public struct SceneDocument: Sendable {
         }
         guard !layers.isEmpty else { throw Failure.noLayers }
         self.layers = layers
-        self.skipped = skipped
+        self.skipped = skipped + notes
     }
 
     private static let reasons = [
@@ -188,12 +199,32 @@ public struct SceneDocument: Sendable {
         try? JSONSerialization.jsonObject(with: Data(text.utf8), options: .fragmentsAllowed)
     }
 
+    /// Largest magnitude a field may have; a bigger or non-finite value (`nan`, `inf`, `1e999`) is dropped.
+    static let limit = 1e9
+
     static func number(_ raw: Any?) -> Double? {
-        if let n = raw as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() { return n.doubleValue }
-        if let s = raw as? String { return Double(s.trimmingCharacters(in: .whitespaces)) }
-        return nil
+        let value: Double
+        if let n = raw as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() {
+            value = n.doubleValue
+        } else if let s = raw as? String, let parsed = Double(s.trimmingCharacters(in: .whitespaces)) {
+            value = parsed
+        } else {
+            return nil
+        }
+        return value.isFinite && abs(value) <= limit ? value : nil
     }
 
+    /// A value that is present but cannot be used as a number or a list of numbers.
+    static func unusable(_ raw: Any?) -> Bool {
+        switch raw {
+        case let text as String: text.split(whereSeparator: \.isWhitespace).contains { number(String($0)) == nil }
+        case let list as [Any]: list.contains { unusable($0) }
+        case let n as NSNumber: CFGetTypeID(n) != CFBooleanGetTypeID() && number(n) == nil
+        default: false
+        }
+    }
+
+    /// A whole number inside the range of `Int`; a fraction is cut off.
     static func int(_ raw: Any?) -> Int? { number(raw).map { Int($0) } }
 
     static func bool(_ raw: Any?) -> Bool? {
@@ -203,9 +234,11 @@ public struct SceneDocument: Sendable {
     }
 
     static func vector(_ raw: Any?, count: Int) -> [Double]? {
+        // One bad part spoils the whole value: a colour of `1 nan 0` is not `1 0 0`.
+        if unusable(raw) { return nil }
         var parts: [Double]
         if let s = raw as? String {
-            parts = s.split(whereSeparator: \.isWhitespace).compactMap { Double($0) }
+            parts = s.split(whereSeparator: \.isWhitespace).compactMap { number(String($0)) }
         } else if let list = raw as? [Any] {
             parts = list.compactMap { number($0) }
         } else if let n = number(raw) {

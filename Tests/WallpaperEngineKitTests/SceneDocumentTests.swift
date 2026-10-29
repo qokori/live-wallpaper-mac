@@ -190,4 +190,56 @@ import Testing
         let slice = (Data([9, 9]) + bytes)[2...]
         #expect(Array(SceneAssets.ranged(slice, mime: "video/mp4", range: "bytes=0-1").body) == [0, 1])
     }
+
+    // MARK: Values from a damaged or hostile scene.json
+
+    @Test func numbersThatAreNotFiniteOrFitNoIntAreDropped() {
+        for bad in ["nan", "inf", "-inf", "1e999", "1e20", "1e10"] {
+            #expect(SceneDocument.number(bad) == nil, "\(bad)")
+            #expect(SceneDocument.int(bad) == nil, "\(bad)")
+            #expect(SceneDocument.vector("1 \(bad) 3", count: 3)?.contains { !$0.isFinite } != true)
+        }
+        #expect(SceneDocument.int(1e20 as NSNumber) == nil)
+        #expect(SceneDocument.int("7.9") == 7)
+        #expect(SceneDocument.number("0.5") == 0.5)
+    }
+
+    @Test func hostileFieldsDoNotCrashAndAreReported() throws {
+        let objects = #"""
+        {"id":1e20,"name":"a","image":"models/a.json","size":"10 10","colorBlendMode":"inf","alpha":"nan","brightness":"-inf",
+         "color":"1 nan 0","scale":"1e999","origin":"1e20 0 0","parallaxDepth":"inf 1","parent":1e30}
+        """#
+        let (fs, scene) = try files(objects, general: #""orthogonalprojection":{"width":1e20,"height":"inf"},"cameraparallaxamount":"nan""#)
+        let doc = try SceneDocument(data: scene, files: fs)
+        #expect(doc.width == 1920 && doc.height == 1080)
+        let layer = try #require(doc.layers.first)
+        #expect(layer.blendMode == 0 && layer.alpha == 1 && layer.brightness == 1 && layer.color == [1, 1, 1])
+        #expect(layer.parallaxDepth == [1, 1] && layer.transform == [1, 0, 0, 1, 0, 0])
+        for field in ["id", "colorBlendMode", "alpha", "scale", "parent"] {
+            #expect(doc.skipped.contains { $0.contains("поле \(field) отброшено") }, "\(field)")
+        }
+        // The page gets valid JSON even so.
+        let assets = try SceneAssets(files: fs, project: try EngineProject(data: EngineFixtures.projectJSON()))
+        let json = try sceneJSON(assets)
+        #expect((json["layers"] as? [[String: Any]])?.count == 1)
+    }
+
+    @Test func aChainOfHugeParentScalesIsClamped() throws {
+        var objects = (1...40).map { #"{"id":\#($0),"name":"g\#($0)","parent":\#($0 - 1),"scale":"100000000 100000000 1"}"# }
+        objects.append(#"{"id":41,"name":"leaf","parent":40,"image":"models/a.json","size":"10 10"}"#)
+        let (fs, scene) = try files(objects.joined(separator: ","))
+        let doc = try SceneDocument(data: scene, files: fs)
+        let layer = try #require(doc.layers.first)
+        #expect(layer.transform.allSatisfy { $0.isFinite })
+        #expect(doc.skipped.contains { $0.contains("родител") })
+        let assets = try SceneAssets(files: fs, project: try EngineProject(data: EngineFixtures.projectJSON()))
+        #expect((try sceneJSON(assets))["layers"] != nil)
+    }
+
+    @Test func canDrawNeedsNoTextureDecoding() throws {
+        let (fs, _) = try files(#"{"id":1,"image":"models/a.json","size":"10 10"}"#)
+        #expect(SceneAssets.canDraw(files: fs, project: try EngineProject(data: EngineFixtures.projectJSON())))
+        let (empty, _) = try files(#"{"id":1,"name":"text","text":{}}"#)
+        #expect(!SceneAssets.canDraw(files: empty, project: try EngineProject(data: EngineFixtures.projectJSON())))
+    }
 }

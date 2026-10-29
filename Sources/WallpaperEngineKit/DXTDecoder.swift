@@ -12,13 +12,14 @@ enum DXTDecoder {
     }
 
     /// Returns `width * height * 4` bytes, or nil when `data` is shorter than the blocks need.
-    static func decode(_ data: Data, width: Int, height: Int, variant: Variant) -> [UInt8]? {
+    static func decode(_ data: Data, width: Int, height: Int, variant: Variant) -> Data? {
         guard width > 0, height > 0 else { return nil }
         let blocksX = (width + 3) / 4
         let blocksY = (height + 3) / 4
         guard data.count >= blocksX * blocksY * variant.blockBytes else { return nil }
-        var out = [UInt8](repeating: 0, count: width * height * 4)
+        var out = Data(count: width * height * 4)
         let base = data.startIndex
+        out.withUnsafeMutableBytes { (out: UnsafeMutableRawBufferPointer) in
         for by in 0..<blocksY {
             for bx in 0..<blocksX {
                 let at = base + (by * blocksX + bx) * variant.blockBytes
@@ -45,6 +46,7 @@ enum DXTDecoder {
                     }
                 }
             }
+        }
         }
         return out
     }
