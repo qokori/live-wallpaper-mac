@@ -45,6 +45,18 @@ Or in Terminal: `xattr -dr com.apple.quarantine /Applications/LiveWallpaper.app`
 
 On macOS 14, right-click → **Open** → **Open** also works; on macOS 15 and later it no longer bypasses the check.
 
+## Install in one command
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/qokori/live-wallpaper-mac/main/scripts/install.sh | bash
+```
+
+Downloads the latest release (`bash -s -- --version 0.4.0` for a given one), checks its SHA-256 against the `.sha256` file of the
+release, unpacks it with `ditto` and puts `LiveWallpaper.app` into `/Applications` (into `~/Applications` if that is not writable).
+No sudo. A file fetched by `curl` gets no quarantine mark, so Gatekeeper shows no "Apple could not verify" warning; the script
+never touches the quarantine attribute. If the app is running, the script asks you to quit it and changes nothing. The app is
+still ad-hoc signed and not notarized. Read the script first if you like: [scripts/install.sh](scripts/install.sh).
+
 ## Features
 
 - Video (mp4/mov, H.264, HEVC): `AVQueuePlayer` + `AVPlayerLooper` over the video track only, muted, no gap at
