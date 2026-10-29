@@ -306,22 +306,22 @@ final class AppModel {
 
     // MARK: Plumbing
 
-    private func makeContent(for source: WallpaperSource, label: String) throws -> WallpaperContent {
+    private func makeContent(for source: WallpaperSource, label: String) throws -> ContentBuild {
         switch source.kind {
         case .video:
-            return VideoContent(url: source.resolvedURL, label: label)
+            return .ready(VideoContent(url: source.resolvedURL, label: label))
         case .gif:
-            return GifContent(url: source.resolvedURL, label: label)
+            return .ready(GifContent(url: source.resolvedURL, label: label))
         case .wallpaperEngine:
-            return try EngineSupport.content(for: source, frameRate: webFrameRate, label: label) { [weak self] in
+            return try EngineSupport.build(for: source, frameRate: webFrameRate, label: label) { [weak self] in
                 self?.sceneSnapshotStored(for: source)
             }
         case .web where source.isRemote:
             guard let url = WebAddress.normalize(source.location) else { throw SourceError.badAddress }
-            return WebContent(target: .remote(url), frameRate: webFrameRate, label: label)
+            return .ready(WebContent(target: .remote(url), frameRate: webFrameRate, label: label))
         case .web:
             let page = try Self.localPage(source.resolvedURL)
-            return WebContent(target: .local(page), frameRate: webFrameRate, label: label)
+            return .ready(WebContent(target: .local(page), frameRate: webFrameRate, label: label))
         }
     }
 

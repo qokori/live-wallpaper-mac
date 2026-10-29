@@ -41,6 +41,70 @@ import WallpaperEngineKit
         #expect(content is StillContent)
     }
 
+    @Test func aSceneNotYetDecodedIsBuiltLaterAndAnotherScreenFindsItReady() async throws {
+        let dir = folder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        _ = try drawable(dir)
+        guard case .later(let work) = try EngineSupport.build(for: source(dir), frameRate: 30, label: "t") else {
+            Issue.record("an uncached scene must be built in the background")
+            return
+        }
+        let first = try #require(try await work() as? WebContent)
+        #expect(first.isScene)
+        // The first screen holds the textures: the second one needs no waiting.
+        guard case .ready(let second) = try EngineSupport.build(for: source(dir), frameRate: 30, label: "t") else {
+            Issue.record("a scene that is already decoded is ready at once")
+            return
+        }
+        #expect(second is WebContent)
+        first.stop()
+        second.stop()
+    }
+
+    @Test func screensAskingForOneSceneAtOnceWaitForOneBuild() async throws {
+        let dir = folder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        _ = try drawable(dir)
+        let item = try EngineSupport.open(dir)
+        async let a = EngineSupport.loadSceneAssets(item)
+        async let b = EngineSupport.loadSceneAssets(item)
+        let (x, y) = try await (a, b)
+        #expect(x === y)
+    }
+
+    @Test func aSceneThatCannotBeDecodedFallsBackToItsPreviewAfterTheWait() async throws {
+        let dir = folder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data(#"{"type":"scene","file":"scene.json","preview":"preview.png"}"#.utf8).write(to: dir.appending(path: "project.json"))
+        try EngineFixtures.pkg(entries: [("scene.json", Data(#"{"objects":[{"id":1,"particle":"x"}]}"#.utf8))]).write(to: dir.appending(path: "scene.pkg"))
+        try EngineFixtures.png(width: 4, height: 4).write(to: dir.appending(path: "preview.png"))
+        guard case .later(let work) = try EngineSupport.build(for: source(dir), frameRate: 30, label: "t") else {
+            Issue.record("expected a background build")
+            return
+        }
+        #expect(try await work() is StillContent)
+    }
+
+    /// The decoding runs off the main thread: the main actor keeps answering while a big scene is built.
+    @Test func theMainThreadKeepsRunningWhileASceneIsBuilt() async throws {
+        let dir = folder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // 12 uncompressed textures of 4 MiB each: enough for the build to take a measurable time.
+        let big = EngineFixtures.tex(width: 1024, height: 1024, bytes: [UInt8](repeating: 7, count: 1024 * 1024 * 4))
+        _ = try EngineFixtures.scene(in: dir, layers: (0..<12).map { .init(name: "l\($0)", texture: big) })
+        let item = try EngineSupport.open(dir)
+        var finished = false
+        let build = Task { _ = try await EngineSupport.loadSceneAssets(item); finished = true }
+        var ticks = 0
+        while !finished && ticks < 5000 {
+            try await Task.sleep(for: .milliseconds(1))
+            ticks += 1
+        }
+        try await build.value
+        #expect(ticks >= 2)
+    }
+
     @Test func theSnapshotIsStoredFoundAndRemoved() throws {
         let dir = folder()
         let cache = folder()

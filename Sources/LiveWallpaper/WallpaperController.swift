@@ -30,6 +30,14 @@ final class WallpaperController {
     /// Replacements still loading; they take over from `active` on their first frame.
     private var pending: [String: ScreenWallpaper] = [:]
     private var failed: [String: WallpaperSource] = [:]
+    /// Content that is still being prepared in the background (a scene's textures); it becomes a `pending` window.
+    private var building: [String: Build] = [:]
+
+    private struct Build {
+        let source: WallpaperSource
+        var frame: NSRect
+        let task: Task<Void, Never>
+    }
 
     var conditions = SystemConditions() {
         didSet { if conditions != oldValue { updatePlayback() } }
@@ -39,7 +47,7 @@ final class WallpaperController {
 
     /// How a display's video fills it; read when a window opens and by `refreshScaling()`.
     var scalingFor: (String) -> WallpaperScaling = { _ in .fill }
-    var makeContent: ((WallpaperSource, String) throws -> WallpaperContent)?
+    var makeContent: ((WallpaperSource, String) throws -> ContentBuild)?
     var onChange: (() -> Void)?
     var onShown: ((String, WallpaperSource) -> Void)?
     var onFailure: ((WallpaperSource, Error) -> Void)?
@@ -52,23 +60,26 @@ final class WallpaperController {
             screens.append(.init(id: id, frame: screen.frame, desired: sourceFor(id)))
             names[id] = screen.localizedName
         }
-        let known = Set(active.keys).union(pending.keys).union(failed.keys)
+        let known = Set(active.keys).union(pending.keys).union(building.keys).union(failed.keys)
         let state = Dictionary(uniqueKeysWithValues: known.map {
-            ($0, ScreenReconciler.State(active: active[$0]?.source, pending: pending[$0]?.source, failed: failed[$0]))
+            ($0, ScreenReconciler.State(active: active[$0]?.source, pending: pending[$0]?.source ?? building[$0]?.source, failed: failed[$0]))
         })
         for action in ScreenReconciler.plan(screens: screens, state: state) {
             switch action {
             case .fit(let id, let frame):
                 active[id]?.fit(to: frame)
                 pending[id]?.fit(to: frame)
+                building[id]?.frame = frame
             case .load(let id, let source, let frame):
                 load(source, on: id, name: names[id] ?? "", frame: frame)
             case .cancelPending(let id):
                 pending.removeValue(forKey: id)?.close()
+                cancelBuild(id)
             case .closeActive(let id):
                 active.removeValue(forKey: id)?.close()
             case .disconnect(let id):
                 Log.event("screen \(id.prefix(8)): disconnected")
+                cancelBuild(id)
                 pending.removeValue(forKey: id)?.close()
                 active.removeValue(forKey: id)?.close()
             }
@@ -82,6 +93,7 @@ final class WallpaperController {
     }
 
     func closeAll() {
+        for id in Array(building.keys) { cancelBuild(id) }
         (Array(active.values) + Array(pending.values)).forEach { $0.close() }
         active.removeAll()
         pending.removeAll()
@@ -138,18 +150,53 @@ final class WallpaperController {
         }
     }
 
+    private func cancelBuild(_ id: String) {
+        building.removeValue(forKey: id)?.task.cancel()
+    }
+
     private func load(_ source: WallpaperSource, on id: String, name: String, frame: NSRect) {
         failed[id] = nil
-        let content: WallpaperContent
+        let label = "screen \(id.prefix(8))"
+        let build: ContentBuild
         do {
             guard let makeContent else { return }
-            content = try makeContent(source, "screen \(id.prefix(8))")
+            build = try makeContent(source, label)
         } catch {
-            failed[id] = source
-            Log.event("screen \(id.prefix(8)): cannot open \(source.title): \(error.localizedDescription)")
-            onFailure?(source, error)
+            fail(source, on: id, error)
             return
         }
+        switch build {
+        case .ready(let content):
+            show(content, of: source, on: id, name: name, frame: frame)
+        case .later(let work):
+            // The window opens when the content is ready; until then the screen keeps what it shows.
+            Log.event("\(label) (\(name)): preparing \(source.title)")
+            let task = Task { @MainActor [weak self] in
+                do {
+                    let content = try await work()
+                    guard let self, !Task.isCancelled, let current = self.building[id], current.source == source else {
+                        content.stop()
+                        return
+                    }
+                    self.building[id] = nil
+                    self.show(content, of: source, on: id, name: name, frame: current.frame)
+                } catch {
+                    guard let self, !Task.isCancelled, self.building[id]?.source == source else { return }
+                    self.building[id] = nil
+                    self.fail(source, on: id, error)
+                }
+            }
+            building[id] = Build(source: source, frame: frame, task: task)
+        }
+    }
+
+    private func fail(_ source: WallpaperSource, on id: String, _ error: Error) {
+        failed[id] = source
+        Log.event("screen \(id.prefix(8)): cannot open \(source.title): \(error.localizedDescription)")
+        onFailure?(source, error)
+    }
+
+    private func show(_ content: WallpaperContent, of source: WallpaperSource, on id: String, name: String, frame: NSRect) {
         let wallpaper = ScreenWallpaper(displayUUID: id, source: source, content: content, frame: frame)
         wallpaper.setScaling(scalingFor(id))
         wallpaper.onVisibilityChange = { [weak self] in self?.updatePlayback() }

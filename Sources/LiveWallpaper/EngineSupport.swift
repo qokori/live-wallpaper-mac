@@ -37,6 +37,12 @@ struct EngineItem {
     var package: URL? = nil
 }
 
+/// What the controller gets for a source: content to show now, or a job that produces it without blocking the main thread.
+enum ContentBuild {
+    case ready(WallpaperContent)
+    case later(@MainActor () async throws -> WallpaperContent)
+}
+
 /// Wallpaper Engine projects: what is accepted, what is shown, and with which pictures.
 enum EngineSupport {
     static let videoExtensions: Set<String> = ["mp4", "m4v", "mov"]
@@ -88,11 +94,42 @@ enum EngineSupport {
         return title?.isEmpty == false ? title : nil
     }
 
+    /// What a project's content needs before it can be put on screen: nothing (`ready`), or work that must not block
+    /// the main thread (`later`: the scene's package is read and its textures decoded in the background).
+    @MainActor
+    static func build(
+        for source: WallpaperSource, frameRate: Int, label: String, snapshotStored: @escaping @MainActor () -> Void = {}
+    ) throws -> ContentBuild {
+        let item = try open(source.resolvedURL)
+        let known = item.type == .scene ? cachedSceneAssets(item) : nil
+        guard item.type == .scene, known == nil else {
+            return .ready(try content(for: item, assets: known, frameRate: frameRate, label: label, snapshotStored: snapshotStored))
+        }
+        return .later {
+            let assets: SceneAssets?
+            do { assets = try await loadSceneAssets(item) } catch {
+                Log.event("\(label): сцену не удалось разобрать: \(error.localizedDescription)")
+                assets = nil
+            }
+            return try content(for: item, assets: assets, frameRate: frameRate, label: label, snapshotStored: snapshotStored)
+        }
+    }
+
+    /// The same, built on the calling thread: for tests and for content that needs no waiting.
     @MainActor
     static func content(
         for source: WallpaperSource, frameRate: Int, label: String, snapshotStored: @escaping @MainActor () -> Void = {}
     ) throws -> WallpaperContent {
         let item = try open(source.resolvedURL)
+        let assets = item.type == .scene ? try? sharedSceneAssets(item) : nil
+        return try content(for: item, assets: assets, frameRate: frameRate, label: label, snapshotStored: snapshotStored)
+    }
+
+    /// `assets` is the scene's decoded package, nil when it could not be read (the preview is shown then).
+    @MainActor
+    private static func content(
+        for item: EngineItem, assets: SceneAssets?, frameRate: Int, label: String, snapshotStored: @escaping @MainActor () -> Void
+    ) throws -> WallpaperContent {
         switch item.type {
         case .video:
             return VideoContent(url: item.mainFile!, label: label)
@@ -100,7 +137,7 @@ enum EngineSupport {
             let page = LocalPage(entry: item.mainFile!.path, readAccess: item.folder.path)
             return WebContent(target: .local(page), frameRate: frameRate, label: label, engineProperties: item.project.properties)
         case .scene:
-            if let assets = try? sharedSceneAssets(item) {
+            if let assets {
                 for line in assets.skipped { Log.event("\(label): сцена: \(line)") }
                 let web = WebContent(target: .scene(assets), frameRate: frameRate, label: label)
                 // Once per project: a later run finds the picture there.
@@ -143,19 +180,56 @@ enum EngineSupport {
         return "\(item.folder.path)|\(modified?.timeIntervalSince1970 ?? 0)"
     }
 
-    /// One `SceneAssets` per project for every screen showing it; it goes away with the last of them.
-    private static func sharedSceneAssets(_ item: EngineItem) throws -> SceneAssets {
+    private nonisolated(unsafe) static var inFlight: [String: Task<SceneAssets, Error>] = [:]
+
+    private static func cachedSceneAssets(_ item: EngineItem) -> SceneAssets? {
         let key = key(item)
         cacheLock.lock()
+        defer { cacheLock.unlock() }
         shared = shared.filter { $0.value.assets != nil }
-        let known = shared[key]?.assets
-        cacheLock.unlock()
-        if let known { return known }
+        return shared[key]?.assets
+    }
+
+    /// One `SceneAssets` per project for every screen showing it; it goes away with the last of them.
+    private static func sharedSceneAssets(_ item: EngineItem) throws -> SceneAssets {
+        if let known = cachedSceneAssets(item) { return known }
         let assets = try sceneAssets(item)
+        let key = key(item)
         cacheLock.lock()
         shared[key] = WeakAssets(assets)
         cacheLock.unlock()
         return assets
+    }
+
+    /// The same, read and decoded in the background. Screens that ask for the same scene while it is being built
+    /// wait for that one build.
+    static func loadSceneAssets(_ item: EngineItem) async throws -> SceneAssets {
+        if let known = cachedSceneAssets(item) { return known }
+        let key = key(item)
+        let task = buildTask(key, item)
+        do {
+            let assets = try await task.value
+            finish(key, assets)
+            return assets
+        } catch {
+            finish(key, nil)
+            throw error
+        }
+    }
+
+    private static func buildTask(_ key: String, _ item: EngineItem) -> Task<SceneAssets, Error> {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        let task = inFlight[key] ?? Task.detached(priority: .userInitiated) { try sceneAssets(item) }
+        inFlight[key] = task
+        return task
+    }
+
+    private static func finish(_ key: String, _ assets: SceneAssets?) {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        if let assets { shared[key] = WeakAssets(assets) }
+        inFlight[key] = nil
     }
 
     /// Whether the scene is drawn (and not only shown by its preview). Decodes no texture, so it is cheap, but it
