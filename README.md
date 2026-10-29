@@ -30,7 +30,7 @@ Applications, a first-launch hint), a fixed window size and large icons in place
 The window layout is written by [dmgbuild](https://github.com/dmgbuild/dmgbuild) (`scripts/dmg-settings.py`), so Finder
 is not opened and no AppleScript runs. The first run installs dmgbuild (pinned) into `build/dmg-venv`, which needs the
 network once; nothing is installed system-wide. A preview of the window without mounting anything:
-(`dmg-background.swift` is compiled with `Sources/LiveWallpaper/Logo.swift` by `swiftc`, as `scripts/make-dmg.sh` does; command `preview <AppIcon.icns> preview.png`).
+(`dmg-background.swift` is compiled with `Sources/LiveWallpaper/Logo.swift` by `swiftc`, as `scripts/make-dmg.sh` does; command `preview <AppIcon.icns> preview.png [dark]`).
 
 ### First launch
 

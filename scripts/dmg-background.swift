@@ -4,7 +4,7 @@
 //
 //   dmg-background layout                       prints: width height appX appY applicationsX applicationsY
 //   dmg-background background <dir>             writes background.png and background@2x.png
-//   dmg-background preview <AppIcon.icns> <out.png>   the window as Finder will draw it, at @2x
+//   dmg-background preview <AppIcon.icns> <out.png> [dark]   the window as Finder will draw it, at @2x; `dark` draws the names white
 import AppKit
 
 // Points, origin at the top left of the window content; icon centers, as Finder stores them.
@@ -61,6 +61,16 @@ func drawBackground(_ context: CGContext) {
     }
     mark(size: 64, center: CGPoint(x: CGFloat(width) / 2, y: 52), alpha: 1, stripes: 6)
 
+    // A neutral grey plate under each icon name. Finder draws the names black in a light window and white in a dark one,
+    // and both read on #808080 (black 5.3:1, white 3.9:1); the rest of the page stays white.
+    for center in [appCenter, applicationsCenter] {
+        let plate = CGRect(x: center.x - 80, y: center.y + iconSize / 2 + 4, width: 160, height: 26)
+        // In the context's own space: a generic-RGB grey would be converted on the way in and come out lighter.
+        context.setFillColor(CGColor(colorSpace: context.colorSpace ?? CGColorSpaceCreateDeviceRGB(), components: [128 / 255, 128 / 255, 128 / 255, 1])!)
+        context.addPath(CGPath(roundedRect: plate, cornerWidth: 8, cornerHeight: 8, transform: nil))
+        context.fillPath()
+    }
+
     // The arrow from the app to the Applications folder.
     let y = appCenter.y
     let start = appCenter.x + iconSize / 2 + 16
@@ -88,7 +98,8 @@ func drawBackground(_ context: CGContext) {
 }
 
 func write(_ rep: NSBitmapImageRep, to url: URL) throws {
-    guard let data = rep.representation(using: .png, properties: [:]) else { throw CocoaError(.fileWriteUnknown) }
+    // Tag, not convert: the drawn numbers (the grey plate is 128) are sRGB numbers, as they are on screen.
+    guard let data = (rep.retagging(with: .sRGB) ?? rep).representation(using: .png, properties: [:]) else { throw CocoaError(.fileWriteUnknown) }
     try data.write(to: url)
 }
 
@@ -101,7 +112,8 @@ case "background" where arguments.count == 3:
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     try write(canvas(scale: 1, drawBackground), to: directory.appending(path: "background.png"))
     try write(canvas(scale: 2, drawBackground), to: directory.appending(path: "background@2x.png"))
-case "preview" where arguments.count == 4:
+case "preview" where arguments.count == 4 || arguments.count == 5:
+    let names: NSColor = arguments.count == 5 && arguments[4] == "dark" ? .white : .black
     guard let icon = NSImage(contentsOf: URL(filePath: arguments[2])) else { fatalError("cannot read \(arguments[2])") }
     let folder = NSWorkspace.shared.icon(forFile: "/Applications")
     let rep = canvas(scale: 2) { context in
@@ -109,8 +121,8 @@ case "preview" where arguments.count == 4:
         for (image, center, name) in [(icon, appCenter, "LiveWallpaper"), (folder, applicationsCenter, "Applications")] {
             image.draw(in: CGRect(x: center.x - iconSize / 2, y: center.y - iconSize / 2, width: iconSize, height: iconSize),
                        from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
-            // Finder draws the names under the icons in the system label color; shown here for a light-mode window.
-            text(name, size: 13, weight: .regular, alpha: 1, at: CGPoint(x: center.x, y: center.y + iconSize / 2 + 16), color: .black)
+            // Finder draws the names under the icons in the system label colour: black in light mode, white in dark mode.
+            text(name, size: 13, weight: .regular, alpha: 1, at: CGPoint(x: center.x, y: center.y + iconSize / 2 + 17), color: names)
         }
     }
     try write(rep, to: URL(filePath: arguments[3]))

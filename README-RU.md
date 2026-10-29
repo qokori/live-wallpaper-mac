@@ -36,7 +36,7 @@ SKIP_INSTALL=1 ./scripts/build-app.sh
 окна записывает [dmgbuild](https://github.com/dmgbuild/dmgbuild) (`scripts/dmg-settings.py`): Finder не открывается,
 AppleScript не запускается. При первом запуске dmgbuild (закреплённая версия) ставится в `build/dmg-venv`, для этого один раз
 нужна сеть; в систему ничего не ставится. Как будет выглядеть окно, можно посмотреть, ничего не монтируя:
-(`dmg-background.swift` вместе с `Sources/LiveWallpaper/Logo.swift` собирается `swiftc`, как в `scripts/make-dmg.sh`; команда `preview <AppIcon.icns> preview.png`).
+(`dmg-background.swift` вместе с `Sources/LiveWallpaper/Logo.swift` собирается `swiftc`, как в `scripts/make-dmg.sh`; команда `preview <AppIcon.icns> preview.png [dark]`).
 
 ### Первый запуск
 
