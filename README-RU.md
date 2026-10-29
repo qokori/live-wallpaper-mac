@@ -29,6 +29,7 @@ open ~/Applications/LiveWallpaper.app
 ```sh
 SKIP_INSTALL=1 ./scripts/build-app.sh
 ./scripts/make-dmg.sh build/LiveWallpaper.app build/LiveWallpaper.dmg
+./scripts/make-zip.sh build/LiveWallpaper.app build/LiveWallpaper.zip   # zip и .sha256 без AppleDouble-файлов
 ```
 
 Образ открывается окном со своим фоном (`scripts/dmg-background.swift`: белая страница, чёрные волнистые полосы логотипа, стрелка от приложения к Applications,
@@ -382,6 +383,6 @@ WindowServer / GPU / мощности системы «до и после» не
 - `Sources/LiveWallpaper/` — приложение: обои на рабочем столе (видео, веб, контроллер экранов, системные
   события, картинка рабочего стола), меню; `Window/` — главное окно (библиотека, экраны, настройки).
 - `examples/` — примеры веб-обоев.
-- `scripts/build-app.sh` — сборка .app; `make-icon.sh` / `make-icon.swift` — иконка; `make-dmg.sh`, `dmg-background.swift`, `dmg-settings.py` — установочный образ.
+- `scripts/build-app.sh` — сборка .app; `make-icon.sh` / `make-icon.swift` — иконка; `make-zip.sh` — zip выпуска; `make-dmg.sh`, `dmg-background.swift`, `dmg-settings.py` — установочный образ.
 - `scripts/dev/` — ручные проверки: `windows.swift` (слои окон, только чтение), `fullscreen-probe.swift`,
   `virtual-display.m` (приватный `CGVirtualDisplay`, только для проверки, в приложение не входит), `measure.sh`.

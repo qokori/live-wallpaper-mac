@@ -19,6 +19,8 @@ BIN_PATH="$(swift build "${BUILD_FLAGS[@]}" --show-bin-path)/$APP_NAME"
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BIN_PATH" "$APP_DIR/Contents/MacOS/$APP_NAME"
+# Drop the debug map (OSO/SO entries name the build directory) and local symbols; the signature is made after this.
+strip -S -x "$APP_DIR/Contents/MacOS/$APP_NAME"
 # The app icon is drawn by code (Sources/LiveWallpaper/Logo.swift, built by scripts/make-icon.sh), so it is rebuilt with the app.
 "$ROOT/scripts/make-icon.sh" "$APP_DIR/Contents/Resources/AppIcon.icns"
 
@@ -55,6 +57,7 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
+xattr -cr "$APP_DIR"
 # Ad-hoc signature (no developer account required).
 codesign --force --deep -s - "$APP_DIR"
 

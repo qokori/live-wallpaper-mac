@@ -23,6 +23,7 @@ The bundle is ad-hoc signed and not notarized. The logo (black wavy stripes) is 
 ```sh
 SKIP_INSTALL=1 ./scripts/build-app.sh
 ./scripts/make-dmg.sh build/LiveWallpaper.app build/LiveWallpaper.dmg
+./scripts/make-zip.sh build/LiveWallpaper.app build/LiveWallpaper.zip   # zip and .sha256, without AppleDouble files
 ```
 
 The image opens as a window with its own background (`scripts/dmg-background.swift`: white page, the logo's black wavy stripes, an arrow from the app to
