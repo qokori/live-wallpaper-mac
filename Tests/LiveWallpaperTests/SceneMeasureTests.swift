@@ -137,4 +137,34 @@ import WebKit
         video.stop()
         window.orderOut(nil)
     }
+
+    /// What a paused scene still costs: the same scene playing and then paused (covered by windows, display asleep).
+    @Test func sceneWhilePaused() async throws {
+        guard Self.enabled, let folder = SampleScenes.videoScene else { return }
+        let gpuBefore = pids(named: "com.apple.WebKit.GPU")
+        let probe = try SceneProbe(folder: folder, size: CGSize(width: 1920, height: 1080), frameRate: 30)
+        defer { probe.close() }
+        try await probe.load()
+        let webPid = try #require(probe.webView.value(forKey: "_webProcessIdentifier") as? Int32)
+        let gpuPids = pids(named: "com.apple.WebKit.GPU").subtracting(gpuBefore)
+        let appPid = getpid()
+        let processes: () -> [String: Int32] = {
+            var map: [String: Int32] = ["WebContent": webPid, "приложение": appPid]
+            for pid in gpuPids { map["GPU \(pid)"] = pid }
+            return map
+        }
+        let playing = await measure(processes, warmup: 6, seconds: 15) {
+            probe.webView.evaluateJavaScript("window.__lwScene.step(1/30)")
+        }
+        describe("сцена играет", playing)
+        probe.web.setPlaying(false)
+        // After the pause the loop is not driven at all, as the page's own loop stops when paused.
+        let paused = await measure(processes, warmup: 4, seconds: 15) {}
+        describe("сцена на паузе", paused)
+        probe.web.setPlaying(true)
+        let resumed = await measure(processes, warmup: 4, seconds: 10) {
+            probe.webView.evaluateJavaScript("window.__lwScene.step(1/30)")
+        }
+        describe("сцена снова играет", resumed)
+    }
 }

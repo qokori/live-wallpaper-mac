@@ -228,4 +228,37 @@ func near(_ a: [Int], _ b: [Int], tolerance: Int = 6) -> Bool {
         let pixels = try await probe.snapshot()
         #expect(near(pixels.at(0.5, 0.5), [255, 255, 255], tolerance: 25), "\(pixels.at(0.5, 0.5))")
     }
+
+    /// A paused wallpaper (covered by windows, display asleep, locked) stops its video layers, and resuming carries on
+    /// in the same page: the scene is not loaded again.
+    @Test func pausingStopsVideoLayersAndResumingDoesNotReloadTheScene() async throws {
+        let dir = folder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let mp4 = dir.appending(path: "clip.mp4")
+        try await TestVideo.write(mp4, fill: 255)
+        _ = try EngineFixtures.scene(in: dir, layers: [
+            .init(name: "видео", texture: EngineFixtures.tex(width: 64, height: 48, bytes: [UInt8](try Data(contentsOf: mp4)), flags: 35)),
+        ])
+        let probe = try SceneProbe(folder: dir)
+        defer { probe.close() }
+        try await probe.load(playing: false)
+        // Loaded paused: the video is not playing.
+        #expect(try await probe.status()["videosPlaying"] as? Int == 0)
+        _ = try await probe.webView.evaluateJavaScript("window.__lwScene.marker = 'same page'")
+        probe.web.setPlaying(true)
+        try await Task.sleep(for: .milliseconds(300))
+        // An unseen window gets no animation frames: the loop is started by hand, as the other render tests do.
+        try await probe.step(0.1)
+        #expect(try await probe.status()["videosPlaying"] as? Int == 1)
+        probe.web.setPlaying(false)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(try await probe.status()["videosPlaying"] as? Int == 0, "пауза должна остановить видеослои")
+        probe.web.setPlaying(true)
+        try await Task.sleep(for: .milliseconds(300))
+        try await probe.step(0.1)
+        #expect(try await probe.status()["videosPlaying"] as? Int == 1, "после паузы видео идёт дальше")
+        let marker = try await probe.webView.evaluateJavaScript("window.__lwScene.marker") as? String
+        #expect(marker == "same page", "сцена не должна загружаться заново")
+    }
 }

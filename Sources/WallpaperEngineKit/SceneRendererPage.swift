@@ -10,7 +10,7 @@ public enum SceneRendererPage {
       const post = (message) => { try { webkit.messageHandlers.scene.postMessage(message); } catch (e) {} };
       const status = { drawn: 0, unknownModes: [], failed: [], videos: 0, canvas: [0, 0], parallax: [0, 0] };
       const api = window.__lwScene = {
-        status: () => JSON.stringify(status),
+        status: () => { status.videosPlaying = videos.filter((entry) => !entry.video.paused).length; return JSON.stringify(status); },
         setMouse(x, y) { target = [x, y]; },
         setScaling(mode) { scaling = mode; layoutDirty = true; dirty = true; if (scene) draw(); },
         // One step of the loop by hand (the page's own loop waits for the screen to ask for frames).
