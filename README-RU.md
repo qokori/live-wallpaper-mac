@@ -22,7 +22,21 @@ SKIP_INSTALL=1 ./scripts/build-app.sh    # только build/, ничего н�
 open ~/Applications/LiveWallpaper.app
 ```
 
-Сборка universal (arm64 + x86_64), подпись ad-hoc, без нотаризации.
+Сборка universal (arm64 + x86_64), подпись ad-hoc, без нотаризации. Иконка приложения рисуется кодом (`scripts/make-icon.swift`) и пересобирается при каждом `build-app.sh`.
+
+### Установочный образ
+
+```sh
+SKIP_INSTALL=1 ./scripts/build-app.sh
+./scripts/make-dmg.sh build/LiveWallpaper.app build/LiveWallpaper.dmg
+```
+
+Образ открывается окном со своим фоном (`scripts/dmg-background.swift`: градиент темы, стрелка от приложения к Applications,
+строка про первый запуск), заданным размером и крупными иконками на своих местах; у тома иконка приложения. Расположение
+окна записывает [dmgbuild](https://github.com/dmgbuild/dmgbuild) (`scripts/dmg-settings.py`): Finder не открывается,
+AppleScript не запускается. При первом запуске dmgbuild (закреплённая версия) ставится в `build/dmg-venv`, для этого один раз
+нужна сеть; в систему ничего не ставится. Как будет выглядеть окно, можно посмотреть, ничего не монтируя:
+`swift scripts/dmg-background.swift preview <AppIcon.icns> preview.png`.
 
 ### Первый запуск
 
@@ -301,6 +315,6 @@ WindowServer / GPU / мощности системы «до и после» не
 - `Sources/LiveWallpaper/` — приложение: обои на рабочем столе (видео, веб, контроллер экранов, системные
   события, картинка рабочего стола), меню; `Window/` — главное окно (библиотека, экраны, настройки).
 - `examples/` — примеры веб-обоев.
-- `scripts/build-app.sh` — сборка .app.
+- `scripts/build-app.sh` — сборка .app; `make-icon.sh` / `make-icon.swift` — иконка; `make-dmg.sh`, `dmg-background.swift`, `dmg-settings.py` — установочный образ.
 - `scripts/dev/` — ручные проверки: `windows.swift` (слои окон, только чтение), `fullscreen-probe.swift`,
   `virtual-display.m` (приватный `CGVirtualDisplay`, только для проверки, в приложение не входит), `measure.sh`.

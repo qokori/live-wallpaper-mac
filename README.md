@@ -16,7 +16,21 @@ swift test                              # logic tests and the app model / main w
 SKIP_INSTALL=1 ./scripts/build-app.sh   # build only
 ```
 
-The bundle is ad-hoc signed and not notarized.
+The bundle is ad-hoc signed and not notarized. The app icon is drawn by code (`scripts/make-icon.swift`) and rebuilt with every `build-app.sh`.
+
+### Installer disk image
+
+```sh
+SKIP_INSTALL=1 ./scripts/build-app.sh
+./scripts/make-dmg.sh build/LiveWallpaper.app build/LiveWallpaper.dmg
+```
+
+The image opens as a window with its own background (`scripts/dmg-background.swift`: theme gradient, an arrow from the app to
+Applications, a one-line first-launch hint), a fixed window size and large icons in place; the volume has the app icon.
+The window layout is written by [dmgbuild](https://github.com/dmgbuild/dmgbuild) (`scripts/dmg-settings.py`), so Finder
+is not opened and no AppleScript runs. The first run installs dmgbuild (pinned) into `build/dmg-venv`, which needs the
+network once; nothing is installed system-wide. A preview of the window without mounting anything:
+`swift scripts/dmg-background.swift preview <AppIcon.icns> preview.png`.
 
 ### First launch
 
