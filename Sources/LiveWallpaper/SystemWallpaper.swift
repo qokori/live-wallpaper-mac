@@ -39,6 +39,10 @@ enum SystemWallpaper {
         let target = framesDirectory.appending(path: name)
         if FileManager.default.fileExists(atPath: target.path) { return target }
 
+        if WallpaperSource.Kind.detect(path: video.path, isDirectory: false) == .gif {
+            let image = try firstGifFrame(of: video)
+            return try writeJPEG(image, to: target)
+        }
         let asset = AVURLAsset(url: video)
         let start = try await asset.loadTracks(withMediaType: .video).first?.load(.timeRange).start ?? .zero
         let generator = AVAssetImageGenerator(asset: asset)
@@ -46,7 +50,18 @@ enum SystemWallpaper {
         generator.requestedTimeToleranceBefore = .zero
         generator.requestedTimeToleranceAfter = .zero
         let image = try await generator.image(at: start).image
+        return try writeJPEG(image, to: target)
+    }
 
+    /// The first frame of a GIF or APNG, as ImageIO composes it.
+    private static func firstGifFrame(of url: URL) throws -> CGImage {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+        else { throw CocoaError(.fileReadCorruptFile) }
+        return image
+    }
+
+    private static func writeJPEG(_ image: CGImage, to target: URL) throws -> URL {
         try FileManager.default.createDirectory(at: framesDirectory, withIntermediateDirectories: true)
         guard let destination = CGImageDestinationCreateWithURL(target as CFURL, UTType.jpeg.identifier as CFString, 1, nil)
         else { throw CocoaError(.fileWriteUnknown) }

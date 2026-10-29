@@ -106,6 +106,7 @@ private struct LibraryView: View {
                 Spacer()
                 Menu {
                     Button("Видео…") { pick(.video) }
+                    Button("GIF…") { pick(.gif) }
                     Button("Веб-страница: папка или файл…") { pick(.webPage) }
                     Button("Веб-страница по адресу…") { address = ""; addingAddress = true }
                 } label: {
@@ -196,7 +197,7 @@ private struct Card: View {
                     .aspectRatio(16.0 / 10.0, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                 HStack(spacing: 4) {
-                    Badge(text: item.source.kind == .video ? "Видео" : "Веб")
+                    Badge(text: item.source.kind.badge)
                     if isMissing { Badge(text: "Нет файла", warning: true) }
                 }
                 .padding(6)
@@ -227,7 +228,7 @@ private struct Thumbnail: View {
             } else {
                 ZStack {
                     LinearGradient(colors: [.gray.opacity(0.35), .gray.opacity(0.18)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                    Image(systemName: kind == .video ? "film" : "globe").font(.system(size: 34)).foregroundStyle(.secondary)
+                    Image(systemName: kind.symbol).font(.system(size: 34)).foregroundStyle(.secondary)
                 }
             }
         }
@@ -281,10 +282,11 @@ private struct EmptyLibrary: View {
             Spacer()
             Image(systemName: "photo.on.rectangle.angled").font(.system(size: 44)).foregroundStyle(.secondary)
             Text("В библиотеке пока пусто").font(.title3.weight(.semibold))
-            Text("Добавьте видео, папку с веб-страницей или адрес. Файлы можно перетащить прямо в окно.")
+            Text("Добавьте видео, GIF, папку с веб-страницей или адрес. Файлы можно перетащить прямо в окно.")
                 .foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 360)
             HStack {
                 Button("Видео…") { pick(.video) }.buttonStyle(.borderedProminent)
+                Button("GIF…") { pick(.gif) }
                 Button("Веб-страница…") { pick(.webPage) }
                 Button("По адресу…", action: addAddress)
             }
@@ -433,7 +435,7 @@ private struct SettingsView: View {
                         Hint("Сами ставятся на паузу: когда обои закрыты окнами, при блокировке экрана и сне, в режиме энергосбережения (Low Power Mode).")
                     }
                     Panel("Обои системы") {
-                        Toggle("Первый кадр видео — обои системы", isOn: $model.syncSystemWallpaper)
+                        Toggle("Первый кадр видео или GIF — обои системы", isOn: $model.syncSystemWallpaper)
                         Button("Вернуть прежние обои") { model.restoreSystemWallpaper() }
                             .disabled(!model.canRestoreWallpaper)
                         Hint("Кадр виден в Mission Control, на экране входа и до запуска приложения. «Вернуть прежние обои» ставит ваши картинки обратно и выключает этот переключатель.")
@@ -478,5 +480,23 @@ private struct Hint: View {
 
     var body: some View {
         Text(text).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+extension WallpaperSource.Kind {
+    var badge: String {
+        switch self {
+        case .video: "Видео"
+        case .gif: "GIF"
+        case .web: "Веб"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .video: "film"
+        case .gif: "photo.stack"
+        case .web: "globe"
+        }
     }
 }

@@ -5,6 +5,7 @@ import WallpaperCore
 
 enum PickKind {
     case video
+    case gif
     case webPage
 }
 
@@ -60,6 +61,10 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             panel.allowedContentTypes = [.movie]
             panel.allowsMultipleSelection = true
             panel.message = "Видео (mp4, mov, HEVC)"
+        case .gif:
+            panel.allowedContentTypes = [.gif, .png]
+            panel.allowsMultipleSelection = true
+            panel.message = "Анимация (GIF или APNG)"
         case .webPage:
             panel.canChooseDirectories = true
             panel.allowedContentTypes = [.html]

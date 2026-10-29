@@ -64,7 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.stop()
     }
 
-    /// `--video <file>` and `--web <address, folder or .html>` set all screens; `--video-for` / `--web-for <display UUID> …`
+    /// `--video <file>` (a video, or a .gif / .apng) and `--web <address, folder or .html>` set all screens; `--video-for` / `--web-for <display UUID> …`
     /// set one screen; `--fps 30|60` sets the web frame rate.
     private func applyCommandLine() {
         let arguments = CommandLine.arguments
@@ -85,7 +85,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private static func video(_ path: String) -> WallpaperSource {
         let url = URL(filePath: path)
-        return WallpaperSource(kind: .video, location: url.path, bookmark: try? url.bookmarkData())
+        let kind = WallpaperSource.Kind.detect(path: url.path, isDirectory: false)
+        return WallpaperSource(kind: kind == .gif ? .gif : .video, location: url.path, bookmark: try? url.bookmarkData())
     }
 
     /// An existing path is a local page; anything else is treated as a web address.

@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import ImageIO
 import Observation
 import WallpaperCore
 
@@ -24,6 +25,7 @@ final class Thumbnails {
         attempted.insert(item.id)
         let image: NSImage?
         switch item.source.kind {
+        case .gif: image = Self.gifFrame(of: item.source.resolvedURL)
         case .video: image = await Self.frame(of: item.source.resolvedURL)
         case .web: image = item.source.isRemote ? nil : Self.pageImage(in: item.source.resolvedURL)
         }
@@ -48,6 +50,18 @@ final class Thumbnails {
         } catch {
             return nil
         }
+    }
+
+    /// First frame of a GIF, decoded at card size (a big GIF is never decoded in full for a card).
+    private static func gifFrame(of url: URL) -> NSImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+              let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                  kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceCreateThumbnailWithTransform: true,
+                  kCGImageSourceThumbnailMaxPixelSize: 640,
+              ] as CFDictionary)
+        else { return nil }
+        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
     }
 
     private static func pageImage(in url: URL) -> NSImage? {

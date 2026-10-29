@@ -1,10 +1,12 @@
 import Foundation
 
-/// What a screen shows: a video file or a web page (an http(s) address, a local folder with index.html, or an .html file).
+/// What a screen shows: a video file, an animated GIF or a web page (an http(s) address, a local folder with index.html, or an .html file).
 public struct WallpaperSource: Codable, Equatable, Sendable {
     public enum Kind: String, Codable, Sendable {
         case video
         case web
+        /// An animated picture: GIF or APNG.
+        case gif
     }
 
     public var kind: Kind
@@ -90,10 +92,14 @@ extension WallpaperAssignments {
 }
 
 extension WallpaperSource.Kind {
-    /// What a dropped or chosen file or folder is: a folder or an .html file is a page, anything else a video.
+    /// What a dropped or chosen file or folder is: a folder or an .html file is a page, .gif and .apng are animated
+    /// pictures, anything else a video.
     public static func detect(path: String, isDirectory: Bool) -> WallpaperSource.Kind {
         if isDirectory { return .web }
-        let ext = (path as NSString).pathExtension.lowercased()
-        return ext == "html" || ext == "htm" ? .web : .video
+        switch (path as NSString).pathExtension.lowercased() {
+        case "html", "htm": return .web
+        case "gif", "apng": return .gif
+        default: return .video
+        }
     }
 }

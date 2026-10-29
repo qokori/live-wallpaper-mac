@@ -163,7 +163,7 @@ final class AppModel {
         controller.scalingFor = { [weak self] uuid in self?.scaling(forDisplay: uuid) ?? .fill }
         controller.onChange = { [weak self] in self?.refreshScreens() }
         controller.onShown = { [weak self] uuid, source in
-            guard let self, self.syncSystemWallpaper, source.kind == .video else { return }
+            guard let self, self.syncSystemWallpaper, source.kind != .web else { return }
             self.applyFrame(of: source, toDisplay: uuid)
         }
         controller.onFailure = { [weak self] source, error in
@@ -289,6 +289,8 @@ final class AppModel {
         switch source.kind {
         case .video:
             return VideoContent(url: source.resolvedURL, label: label)
+        case .gif:
+            return GifContent(url: source.resolvedURL, label: label)
         case .web where source.isRemote:
             guard let url = WebAddress.normalize(source.location) else { throw SourceError.badAddress }
             return WebContent(target: .remote(url), frameRate: webFrameRate, label: label)
@@ -340,7 +342,7 @@ final class AppModel {
 
     private func applyFramesToAllScreens() {
         for screen in screens {
-            guard let source = screen.source, source.kind == .video else { continue }
+            guard let source = screen.source, source.kind != .web else { continue }
             applyFrame(of: source, toDisplay: screen.id)
         }
     }
@@ -360,6 +362,9 @@ final class AppModel {
             return WebAddress.normalize(source.location) == nil ? SourceError.badAddress.localizedDescription : nil
         case .web:
             do { _ = try localPage(source.resolvedURL) } catch { return error.localizedDescription }
+            return nil
+        case .gif:
+            do { _ = try AnimatedImageInfo.read(source.resolvedURL) } catch { return GifError(error).localizedDescription }
             return nil
         case .video:
             let asset = AVURLAsset(url: source.resolvedURL)

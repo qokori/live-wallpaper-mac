@@ -28,7 +28,7 @@ import WallpaperCore
         let items: [(String, String, WallpaperSource.Kind, CGFloat)] = [
             ("Дождь над городом.mp4", "rain.mp4", .video, 0.58),
             ("Северное сияние.mov", "aurora.mov", .video, 0.42),
-            ("Закат.mp4", "sunset.mp4", .video, 0.04),
+            ("Закат.gif", "sunset.gif", .gif, 0.04),
             ("Волны (WebGL)", "waves", .web, 0.52),
             ("Частицы", "particles", .web, 0.75),
             ("Лес.mp4", "forest.mp4", .video, 0.30),
@@ -37,6 +37,11 @@ import WallpaperCore
         for (_, file, kind, _) in items {
             if kind == .video {
                 sources.append(WallpaperSource(kind: .video, location: try box.file(file).path))
+            } else if kind == .gif {
+                try FileManager.default.createDirectory(at: box.directory, withIntermediateDirectories: true)
+                let url = box.directory.appending(path: file)
+                try TestImages.write(url, delays: [0.1, 0.1])
+                sources.append(WallpaperSource(kind: .gif, location: url.path))
             } else {
                 let folder = box.directory.appending(path: file)
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

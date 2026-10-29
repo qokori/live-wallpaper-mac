@@ -72,12 +72,16 @@ final class ScreenWallpaper {
         window.setFrame(frame, display: true)
     }
 
-    /// Returns whether a video changed its scaling; web pages ignore it.
+    /// Returns whether a video or a GIF changed its scaling; web pages ignore it.
     @discardableResult
     func setScaling(_ scaling: WallpaperScaling) -> Bool {
-        guard let video = content as? VideoContent, scaling != self.scaling else { return false }
+        guard scaling != self.scaling else { return false }
+        switch content {
+        case let video as VideoContent: video.setScaling(scaling)
+        case let gif as GifContent: gif.setScaling(scaling)
+        default: return false
+        }
         self.scaling = scaling
-        video.setScaling(scaling)
         Log.event("screen \(shortID): scaling \(scaling.rawValue)")
         return true
     }

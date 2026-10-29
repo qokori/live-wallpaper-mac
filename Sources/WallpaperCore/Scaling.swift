@@ -18,6 +18,15 @@ public enum WallpaperScaling: String, Codable, CaseIterable, Sendable {
         }
     }
 
+    /// `CALayerContentsGravity` raw value for an animated picture's layer.
+    public var layerGravity: String {
+        switch self {
+        case .fill: "resizeAspectFill"
+        case .fit: "resizeAspect"
+        case .stretch: "resize"
+        }
+    }
+
     /// `NSImageScaling` raw value for the desktop picture: proportional for fill and fit, both axes on their own for stretch.
     public var desktopImageScaling: Int {
         switch self {
