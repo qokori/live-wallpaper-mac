@@ -221,7 +221,7 @@ import Testing
     }
 
     // The measured cases: 480x270 x60 plays from the cache (2.8 % of a core), 1280x720 x60 and 1920x1080 x120 decode on
-    // every frame (22 % and 40 %).
+    // every frame (24 % and 39 %).
     @Test func aPictureThatFitsTheCacheStaysAsItIs() {
         #expect(!GifConversionPolicy.shouldConvert(info(480, 270, frames: 60), maxSide: 3840))
     }

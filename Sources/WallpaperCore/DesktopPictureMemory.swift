@@ -18,13 +18,7 @@ public enum DesktopPictureMemory {
     /// The name changes whenever the video changes (path, date or size): macOS caches desktop pictures by URL,
     /// so reusing a name would keep showing the old frame.
     public static func frameFileName(path: String, modified: Double, size: Int) -> String {
-        var hash: UInt64 = 0xcbf2_9ce4_8422_2325 // FNV-1a, stable across launches unlike Hasher
-        for byte in "\(path)|\(modified)|\(size)".utf8 {
-            hash ^= UInt64(byte)
-            hash = hash &* 0x100_0000_01b3
-        }
-        let hex = String(hash, radix: 16)
-        return String(repeating: "0", count: 16 - hex.count) + hex + ".jpg"
+        StableHash.hex("\(path)|\(modified)|\(size)") + ".jpg"
     }
 
     /// Remembers what a display showed before the first frame went on it. Our own frames are never remembered and

@@ -105,7 +105,7 @@ import WallpaperCore
                      width, height, frames, 1 / delay, fileMB, allDecodedMB, policy as NSString, peak - before, after - before, cpu, Double(changes) / 6, decodeMs))
     }
 
-    /// LW_MEASURE=video<0|1|2>: the same pictures turned into video. Per frame, what the app process spends to decode it
+    /// LW_MEASURE=video<0|1|2> (run LW_MEASURE=gen first: it writes the pictures): the same pictures turned into video. Per frame, what the app process spends to decode it
     /// (AVAssetReader, decompressed to BGRA) against what the GIF decoder spends; the hardware decoder runs in a system
     /// process and is not counted here, like in the earlier video measurements.
     @Test(.enabled(if: GifMeasureTests.enabled)) func afterConversion() async throws {

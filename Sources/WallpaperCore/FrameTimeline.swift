@@ -126,7 +126,7 @@ public enum FrameCachePolicy {
 
 /// Which animated pictures are turned into a video when they are added. The player draws a picture whose frames all stay
 /// decoded for almost nothing (measured: 480x270 x60, 2.8 % of a core). One that does not fit `FrameCachePolicy.budget`
-/// is decoded again on every frame (1280x720 x60: 22 %; 1920x1080 x120: 40 %) and a video does the same job in the
+/// is decoded again on every frame (1280x720 x60: 24 %; 1920x1080 x120: 39 %) and a video does the same job in the
 /// system's decoder. So the line is the cache budget itself: the same test the player uses to decide.
 public enum GifConversionPolicy {
     public static func shouldConvert(_ info: AnimatedImageInfo, maxSide: Int) -> Bool {
