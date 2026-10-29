@@ -188,6 +188,8 @@ private struct Card: View {
     let thumbnails: Thumbnails
     let item: SavedWallpaper
     let isSelected: Bool
+    /// nil until worked out off the main thread.
+    @State private var sceneDrawn: Bool?
 
     var body: some View {
         let shownOn = model.screenNames(showing: item)
@@ -198,7 +200,7 @@ private struct Card: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                 HStack(spacing: 4) {
                     Badge(text: item.source.kind.badge)
-                    if item.source.engine == .scene, !EngineSupport.sceneIsDrawn(item.source) { Badge(text: "сцена: пока превью") }
+                    if item.source.engine == .scene, sceneDrawn == false { Badge(text: "сцена: пока превью") }
                     if isMissing { Badge(text: "Нет файла", warning: true) }
                 }
                 .padding(6)
@@ -210,6 +212,11 @@ private struct Card: View {
         }
         .contentShape(Rectangle())
         .task(id: item.id) { await thumbnails.load(item) }
+        .task(id: item.source.location) {
+            guard item.source.engine == .scene else { return }
+            let source = item.source
+            sceneDrawn = await Task.detached(priority: .utility) { EngineSupport.sceneIsDrawn(source) }.value
+        }
     }
 
     private var isMissing: Bool {

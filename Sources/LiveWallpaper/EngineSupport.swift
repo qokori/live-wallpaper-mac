@@ -100,7 +100,7 @@ enum EngineSupport {
             let page = LocalPage(entry: item.mainFile!.path, readAccess: item.folder.path)
             return WebContent(target: .local(page), frameRate: frameRate, label: label, engineProperties: item.project.properties)
         case .scene:
-            if let assets = try? sceneAssets(item) {
+            if let assets = try? sharedSceneAssets(item) {
                 for line in assets.skipped { Log.event("\(label): сцена: \(line)") }
                 let web = WebContent(target: .scene(assets), frameRate: frameRate, label: label)
                 // Once per project: a later run finds the picture there.
@@ -120,23 +120,57 @@ enum EngineSupport {
     }
 
     static func sceneAssets(_ item: EngineItem) throws -> SceneAssets {
-        guard let package = item.package else { throw EngineSourceError.noPackage }
-        let files = EngineFileSystem(folder: item.folder, archive: try PKGArchive(contentsOf: package))
-        return try SceneAssets(files: files, project: item.project)
+        try SceneAssets(files: try sceneFiles(item), project: item.project)
     }
 
-    private nonisolated(unsafe) static var drawable: [String: Bool] = [:]
-    private static let drawableLock = NSLock()
+    private static func sceneFiles(_ item: EngineItem) throws -> EngineFileSystem {
+        guard let package = item.package else { throw EngineSourceError.noPackage }
+        return EngineFileSystem(folder: item.folder, archive: try PKGArchive(contentsOf: package))
+    }
 
-    /// Whether the scene is drawn (and not only shown by its preview). Worked out once per project and remembered.
+    private final class WeakAssets {
+        weak var assets: SceneAssets?
+        init(_ assets: SceneAssets) { self.assets = assets }
+    }
+
+    private nonisolated(unsafe) static var shared: [String: WeakAssets] = [:]
+    private nonisolated(unsafe) static var drawable: [String: Bool] = [:]
+    private static let cacheLock = NSLock()
+
+    /// Identifies a project's content: where it is and when its package last changed.
+    private static func key(_ item: EngineItem) -> String {
+        let modified = item.package.flatMap { try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate }
+        return "\(item.folder.path)|\(modified?.timeIntervalSince1970 ?? 0)"
+    }
+
+    /// One `SceneAssets` per project for every screen showing it; it goes away with the last of them.
+    private static func sharedSceneAssets(_ item: EngineItem) throws -> SceneAssets {
+        let key = key(item)
+        cacheLock.lock()
+        shared = shared.filter { $0.value.assets != nil }
+        let known = shared[key]?.assets
+        cacheLock.unlock()
+        if let known { return known }
+        let assets = try sceneAssets(item)
+        cacheLock.lock()
+        shared[key] = WeakAssets(assets)
+        cacheLock.unlock()
+        return assets
+    }
+
+    /// Whether the scene is drawn (and not only shown by its preview). Decodes no texture, so it is cheap, but it
+    /// reads files: call it off the main thread. Remembered until the project's package changes.
     static func sceneIsDrawn(_ source: WallpaperSource) -> Bool {
-        drawableLock.lock()
-        if let known = drawable[source.location] { drawableLock.unlock(); return known }
-        drawableLock.unlock()
-        let result = (try? open(source.resolvedURL)).flatMap { try? sceneAssets($0) } != nil
-        drawableLock.lock()
-        drawable[source.location] = result
-        drawableLock.unlock()
+        guard let item = try? open(source.resolvedURL) else { return false }
+        let key = key(item)
+        cacheLock.lock()
+        let known = drawable[key]
+        cacheLock.unlock()
+        if let known { return known }
+        let result = (try? sceneFiles(item)).map { SceneAssets.canDraw(files: $0, project: item.project) } ?? false
+        cacheLock.lock()
+        drawable[key] = result
+        cacheLock.unlock()
         return result
     }
 
