@@ -96,6 +96,10 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 /// The Dock icon while the window is open: the menu bar symbol on a gradient tile.
 enum AppIcon {
     @MainActor static let image: NSImage = {
+        // The bundled icon (scripts/make-icon.swift) when running from the .app; the drawing below otherwise.
+        if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"), let bundled = NSImage(contentsOf: url) {
+            return bundled
+        }
         let size = NSSize(width: 512, height: 512)
         return NSImage(size: size, flipped: false) { rect in
             let tile = NSBezierPath(roundedRect: rect.insetBy(dx: 40, dy: 40), xRadius: 100, yRadius: 100)
