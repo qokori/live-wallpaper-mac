@@ -60,6 +60,39 @@ struct Sandbox {
         #expect(model.library.items.count == 2)
     }
 
+    @Test func frameRateAndQualityStartAt30AndTheScreen() {
+        let box = Sandbox()
+        defer { box.cleanup() }
+        let model = box.model()
+        #expect(model.webFrameRate == 30 && model.renderQuality == .screen)
+    }
+
+    @Test func frameRatesOnOfferAndQualityAreRemembered() {
+        let box = Sandbox()
+        defer { box.cleanup() }
+        let first = box.model()
+        first.webFrameRate = 60
+        first.renderQuality = .maximum
+        let second = box.model()
+        #expect(second.webFrameRate == 60 && second.renderQuality == .maximum)
+        second.webFrameRate = 15
+        second.renderQuality = .economy
+        let third = box.model()
+        #expect(third.webFrameRate == 15 && third.renderQuality == .economy)
+    }
+
+    @Test func aFrameRateNotOnOfferFallsBackTo30() {
+        let box = Sandbox()
+        defer { box.cleanup() }
+        let model = box.model()
+        model.webFrameRate = 45
+        #expect(model.webFrameRate == 30)
+        #expect(box.model().webFrameRate == 30)
+        // The 0.5.0 settings held 30 or 60 as a number: they read back unchanged.
+        box.defaults.set(60, forKey: "webFrameRate")
+        #expect(box.model().webFrameRate == 60)
+    }
+
     @Test func libraryAndChoicesSurviveARestart() {
         let box = Sandbox()
         defer { box.cleanup() }

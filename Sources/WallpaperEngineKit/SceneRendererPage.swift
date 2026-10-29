@@ -21,6 +21,12 @@ public enum SceneRendererPage {
       let modeMap = { 1: 1, 31: 2 };
       let target = [0.5, 0.5], smooth = [0.5, 0.5], scaling = 'fill', layoutDirty = true, dirty = true;
       const fail = (message) => { status.error = String(message); post({ type: 'error', message: String(message) }); };
+      // Quality comes with the address (?q=economy|screen|maximum): economy halves pictures and draws one canvas pixel
+      // per point, screen and maximum draw one per screen pixel; video larger than the canvas is reduced unless maximum.
+      const quality = new URLSearchParams(location.search).get('q') || 'maximum';
+      status.quality = quality; status.reduced = [];
+      const pictureScale = quality === 'economy' ? 0.5 : 1;
+      const shrinksVideo = quality !== 'maximum';
       const gl = document.getElementById('c').getContext('webgl2', { alpha: false, antialias: false, depth: false, stencil: false, powerPreference: 'low-power' });
       if (!gl) { fail('WebGL2 недоступен'); return; }
       const canvas = gl.canvas;
@@ -75,6 +81,8 @@ public enum SceneRendererPage {
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
         return texture;
       };
+      // The size a picture is reduced to in economy mode (pictures of 64 pixels or less are left alone).
+      const reducedSize = (w, h) => (pictureScale < 1 && Math.max(w, h) > 64) ? [Math.max(1, Math.round(w * pictureScale)), Math.max(1, Math.round(h * pictureScale))] : null;
       const loadTexture = async (info) => {
         const texture = makeTexture();
         const result = { texture, info, ok: false };
@@ -82,16 +90,32 @@ public enum SceneRendererPage {
         const bind = () => gl.bindTexture(gl.TEXTURE_2D, texture);
         if (info.kind === 'raw') {
           const bytes = new Uint8Array(await (await fetch(info.url)).arrayBuffer());
-          bind();
-          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, info.w, info.h, 0, gl.RGBA, gl.UNSIGNED_BYTE, bytes);
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+          const small = reducedSize(info.w, info.h);
+          if (small) {
+            const bitmap = await createImageBitmap(new ImageData(new Uint8ClampedArray(bytes.buffer, bytes.byteOffset, info.w * info.h * 4), info.w, info.h),
+              { resizeWidth: small[0], resizeHeight: small[1], resizeQuality: 'high', premultiplyAlpha: 'none' });
+            bind();
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bitmap);
+            bitmap.close();
+            gl.generateMipmap(gl.TEXTURE_2D);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+            status.reduced.push(info.url);
+          } else {
+            bind();
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, info.w, info.h, 0, gl.RGBA, gl.UNSIGNED_BYTE, bytes);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+          }
           result.ok = true;
         } else if (info.kind === 'image') {
           const image = new Image();
           image.src = info.url;
           await image.decode();
+          const small = reducedSize(image.naturalWidth, image.naturalHeight);
+          const source = small ? await createImageBitmap(image, { resizeWidth: small[0], resizeHeight: small[1], resizeQuality: 'high', premultiplyAlpha: 'none' }) : image;
+          if (small) status.reduced.push(info.url);
           bind();
-          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+          if (small) source.close();
           gl.generateMipmap(gl.TEXTURE_2D);
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
           result.ok = true;
@@ -119,6 +143,17 @@ public enum SceneRendererPage {
           bind();
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
           result.video = video; result.time = -1;
+          if (shrinksVideo && video.videoWidth > 0) {
+            // Video larger than the drawing canvas goes to the card at the canvas size.
+            const limit = Math.max(canvas.width, canvas.height);
+            const f = Math.min(1, limit / Math.max(video.videoWidth, video.videoHeight));
+            if (f < 1) {
+              const reduced = document.createElement('canvas');
+              reduced.width = Math.max(1, Math.round(video.videoWidth * f)); reduced.height = Math.max(1, Math.round(video.videoHeight * f));
+              result.reduced = reduced; result.reducedContext = reduced.getContext('2d', { alpha: false });
+              status.reduced.push(info.url + ' ' + reduced.width + 'x' + reduced.height);
+            }
+          }
           status.muted = video.muted;
           videos.push(result);
           status.videos += 1;
@@ -133,7 +168,12 @@ public enum SceneRendererPage {
           if (video.readyState < 2 || video.currentTime === entry.time) continue;
           entry.time = video.currentTime;
           gl.bindTexture(gl.TEXTURE_2D, entry.texture);
-          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+          if (entry.reduced) {
+            entry.reducedContext.drawImage(video, 0, 0, entry.reduced.width, entry.reduced.height);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, entry.reduced);
+          } else {
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+          }
           entry.uploaded = gl.getError() === gl.NO_ERROR;
           status.uploads = (status.uploads || 0) + 1; status.uploaded = entry.uploaded;
           status.videoState = [video.readyState, video.videoWidth, video.videoHeight, video.currentTime, video.paused];
@@ -142,7 +182,7 @@ public enum SceneRendererPage {
       };
 
       const layout = () => {
-        const ratio = Math.min(window.devicePixelRatio || 1, 2);
+        const ratio = quality === 'economy' ? 1 : Math.min(window.devicePixelRatio || 1, 2);
         let w = Math.max(1, Math.round(innerWidth * ratio)), h = Math.max(1, Math.round(innerHeight * ratio));
         const cap = Math.max(scene.width, scene.height) / Math.max(w, h);
         if (cap < 1) { w = Math.max(1, Math.round(w * cap)); h = Math.max(1, Math.round(h * cap)); }
@@ -229,6 +269,7 @@ public enum SceneRendererPage {
         try {
           scene = await (await fetch('scene.json')).json();
           layers = scene.layers;
+          layout(); // the canvas size is known before the pictures are loaded: it limits them
           textures = await Promise.all(scene.textures.map((info, i) =>
             loadTexture(info).catch((error) => { status.failed.push(info.url + ': ' + error.message); return { ok: false }; })));
           uploadVideos();

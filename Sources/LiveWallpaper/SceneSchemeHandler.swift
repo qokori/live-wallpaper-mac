@@ -1,4 +1,5 @@
 import Foundation
+import WallpaperCore
 import WallpaperEngineKit
 import WebKit
 
@@ -7,6 +8,11 @@ import WebKit
 final class SceneSchemeHandler: NSObject, WKURLSchemeHandler {
     static let scheme = "lwscene"
     static let entry = URL(string: "lwscene://s/index.html")!
+
+    /// The page's address; the quality is its query (the page reads it, the files are the same).
+    static func entry(quality: RenderQuality) -> URL {
+        URL(string: "lwscene://s/index.html?q=\(quality.rawValue)")!
+    }
 
     private let assets: SceneAssets
 

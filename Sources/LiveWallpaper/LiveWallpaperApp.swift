@@ -88,10 +88,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// `--video <file>` (a video, or a .gif / .apng) and `--web <address, folder or .html>` set all screens; `--video-for` / `--web-for <display UUID> …`
     /// set one screen; `--we <folder, project.json or .pkg>` and `--we-for <display UUID> …` do the same for a Wallpaper Engine project;
-    /// `--fps 30|60` sets the web frame rate.
+    /// `--fps 15|30|60` sets the frame rate of scenes and web pages, `--quality economy|screen|maximum` how large scenes are drawn.
     private func applyCommandLine() {
         func value(after flag: String, offset: Int = 1) -> String? { Self.value(after: flag, offset: offset) }
-        if let fps = value(after: "--fps").flatMap(Int.init), fps == 30 || fps == 60 { model.webFrameRate = fps }
+        if let fps = value(after: "--fps").flatMap(Int.init), RenderQuality.frameRates.contains(fps) { model.webFrameRate = fps }
+        if let quality = value(after: "--quality").flatMap(RenderQuality.init(rawValue:)) { model.renderQuality = quality }
         if let path = value(after: "--video") { model.setSource(Self.video(path), forDisplay: nil) }
         if let target = value(after: "--web") { model.setSource(Self.web(target), forDisplay: nil) }
         if let path = value(after: "--we") { model.setSource(Self.engine(path), forDisplay: nil) }

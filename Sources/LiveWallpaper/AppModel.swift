@@ -35,6 +35,7 @@ final class AppModel {
         static let syncSystemWallpaper = "syncSystemWallpaper"
         static let webInteractive = "webInteractive"
         static let webFrameRate = "webFrameRate"
+        static let renderQuality = "renderQuality"
     }
 
     var assignments: WallpaperAssignments {
@@ -82,11 +83,21 @@ final class AppModel {
         }
     }
 
-    /// 30 or 60 frames per second for web wallpapers.
+    /// 15, 30 or 60 frames per second for scenes and web wallpapers.
     var webFrameRate: Int {
         didSet {
+            // Assigning here does not run this observer again.
+            if !RenderQuality.frameRates.contains(webFrameRate) { webFrameRate = RenderQuality.standardFrameRate }
             defaults.set(webFrameRate, forKey: Key.webFrameRate)
             controller.setWebFrameRate(webFrameRate)
+        }
+    }
+
+    /// How large scenes are drawn: economy, to the screen (the standard), maximum.
+    var renderQuality: RenderQuality {
+        didSet {
+            defaults.set(renderQuality.rawValue, forKey: Key.renderQuality)
+            controller.setRenderQuality(renderQuality)
         }
     }
 
@@ -145,7 +156,8 @@ final class AppModel {
         pauseOnBattery = defaults.bool(forKey: Key.pauseOnBattery)
         syncSystemWallpaper = defaults.object(forKey: Key.syncSystemWallpaper) as? Bool ?? true
         webInteractive = defaults.bool(forKey: Key.webInteractive)
-        webFrameRate = defaults.integer(forKey: Key.webFrameRate) == 60 ? 60 : 30
+        webFrameRate = RenderQuality.frameRate(defaults.integer(forKey: Key.webFrameRate))
+        renderQuality = RenderQuality(stored: defaults.string(forKey: Key.renderQuality))
         launchAtLogin = LaunchAtLogin.isEnabled
         var library = libraryStore.load()
         // Once, on the first launch with a library: the choices made before it existed. Later ones come in through apply.
@@ -313,7 +325,7 @@ final class AppModel {
         case .gif:
             return .ready(GifContent(url: source.resolvedURL, label: label))
         case .wallpaperEngine:
-            return try EngineSupport.build(for: source, frameRate: webFrameRate, label: label) { [weak self] in
+            return try EngineSupport.build(for: source, frameRate: webFrameRate, quality: renderQuality, label: label) { [weak self] in
                 self?.sceneSnapshotStored(for: source)
             }
         case .web where source.isRemote:

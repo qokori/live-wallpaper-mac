@@ -37,6 +37,7 @@ final class WebContent: NSObject, WallpaperContent, WKNavigationDelegate {
     private var stopped = false
     private var playing = false
     private var frameRate: Int
+    private var quality: RenderQuality
     private var pauseGeneration = 0
     private var sceneScaling: WallpaperScaling = .fill
     private var scenePointer: CGPoint?
@@ -46,8 +47,11 @@ final class WebContent: NSObject, WallpaperContent, WKNavigationDelegate {
     /// A Wallpaper Engine web project: the page gets the host it expects (see `EngineWebShim`).
     private let hasEngineShim: Bool
 
-    init(target: Target, frameRate: Int, label: String, engineProperties: [EngineProject.Property]? = nil) {
+    init(
+        target: Target, frameRate: Int, quality: RenderQuality = .maximum, label: String, engineProperties: [EngineProject.Property]? = nil
+    ) {
         self.target = target
+        self.quality = quality
         self.label = label
         self.frameRate = frameRate
         hasEngineShim = engineProperties != nil
@@ -101,7 +105,7 @@ final class WebContent: NSObject, WallpaperContent, WKNavigationDelegate {
         case .local(let page):
             webView.loadFileURL(URL(filePath: page.entry), allowingReadAccessTo: URL(filePath: page.readAccess, directoryHint: .isDirectory))
         case .scene:
-            webView.load(URLRequest(url: SceneSchemeHandler.entry))
+            webView.load(URLRequest(url: SceneSchemeHandler.entry(quality: quality)))
         }
         // A slow remote page still shows up; its own loading screen is better than nothing. A scene says when it is drawn.
         let wait: Double = if case .scene = target { 30 } else { 6 }
@@ -131,6 +135,15 @@ final class WebContent: NSObject, WallpaperContent, WKNavigationDelegate {
             }
             webView.isHidden = true
         }
+    }
+
+    /// A scene is drawn again at the new quality (the page reads it when it loads); other pages have no use for it.
+    func setQuality(_ quality: RenderQuality) {
+        guard quality != self.quality else { return }
+        self.quality = quality
+        guard isScene, loaded else { return }
+        Log.event("\(label): quality \(quality.rawValue), scene reloads")
+        webView.load(URLRequest(url: SceneSchemeHandler.entry(quality: quality)))
     }
 
     func setFrameRate(_ frameRate: Int) {

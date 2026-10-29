@@ -14,10 +14,10 @@ final class SceneProbe {
     let window: NSWindow
     let size: CGSize
 
-    init(folder: URL, size: CGSize = CGSize(width: 200, height: 120), frameRate: Int = 30) throws {
+    init(folder: URL, size: CGSize = CGSize(width: 200, height: 120), frameRate: Int = 30, quality: RenderQuality = .maximum) throws {
         let item = try EngineSupport.open(folder)
         let assets = try EngineSupport.sceneAssets(item)
-        web = WebContent(target: .scene(assets), frameRate: frameRate, label: "test")
+        web = WebContent(target: .scene(assets), frameRate: frameRate, quality: quality, label: "test")
         self.size = size
         window = NSWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: .borderless, backing: .buffered, defer: false)
         window.contentView = web.view
@@ -260,5 +260,72 @@ func near(_ a: [Int], _ b: [Int], tolerance: Int = 6) -> Bool {
         #expect(try await probe.status()["videosPlaying"] as? Int == 1, "после паузы видео идёт дальше")
         let marker = try await probe.webView.evaluateJavaScript("window.__lwScene.marker") as? String
         #expect(marker == "same page", "сцена не должна загружаться заново")
+    }
+
+    private func bigPictureScene(_ dir: URL) throws {
+        // A 128x128 picture: larger than the 64-pixel limit under which pictures are never reduced.
+        var bytes = [UInt8](repeating: 0, count: 128 * 128 * 4)
+        for i in 0..<(128 * 128) { bytes[i * 4] = 255; bytes[i * 4 + 3] = 255 }
+        _ = try EngineFixtures.scene(in: dir, layers: [.init(name: "красный", texture: EngineFixtures.tex(width: 128, height: 128, bytes: bytes))])
+    }
+
+    @Test func economyHalvesPicturesAndMaximumLeavesThem() async throws {
+        let dir = folder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try bigPictureScene(dir)
+        let economy = try SceneProbe(folder: dir, quality: .economy)
+        defer { economy.close() }
+        try await economy.load()
+        var status = try await economy.status()
+        #expect(status["quality"] as? String == "economy")
+        #expect((status["reduced"] as? [String])?.count == 1, "\(status)")
+        // The picture is still the same red.
+        #expect(near(try await economy.snapshot().at(0.5, 0.5), [255, 0, 0], tolerance: 12))
+        let maximum = try SceneProbe(folder: dir, quality: .maximum)
+        defer { maximum.close() }
+        try await maximum.load()
+        status = try await maximum.status()
+        #expect((status["reduced"] as? [String]) == [])
+        #expect(near(try await maximum.snapshot().at(0.5, 0.5), [255, 0, 0], tolerance: 12))
+    }
+
+    @Test func screenQualityKeepsPicturesButShrinksVideoLargerThanTheCanvas() async throws {
+        let dir = folder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let mp4 = dir.appending(path: "clip.mp4")
+        try await TestVideo.write(mp4, fill: 255)
+        _ = try EngineFixtures.scene(in: dir, layers: [
+            .init(name: "видео", texture: EngineFixtures.tex(width: 64, height: 48, bytes: [UInt8](try Data(contentsOf: mp4)), flags: 35)),
+        ])
+        // A tiny window: its canvas is smaller than the 64x48 clip.
+        let small = try SceneProbe(folder: dir, size: CGSize(width: 16, height: 12), quality: .screen)
+        defer { small.close() }
+        try await small.load()
+        let status = try await small.status()
+        let reduced = try #require(status["reduced"] as? [String])
+        #expect(reduced.count == 1 && reduced[0].contains("x"), "\(status)")
+        #expect(near(try await small.snapshot().at(0.5, 0.5), [255, 255, 255], tolerance: 30))
+        let full = try SceneProbe(folder: dir, size: CGSize(width: 16, height: 12), quality: .maximum)
+        defer { full.close() }
+        try await full.load()
+        #expect((try await full.status()["reduced"] as? [String]) == [])
+    }
+
+    @Test func changingTheQualityReloadsTheScenePage() async throws {
+        let dir = folder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try bigPictureScene(dir)
+        let probe = try SceneProbe(folder: dir, quality: .maximum)
+        defer { probe.close() }
+        try await probe.load()
+        probe.web.setQuality(.economy)
+        var status: [String: Any] = [:]
+        for _ in 0..<100 {
+            try await Task.sleep(for: .milliseconds(100))
+            status = (try? await probe.status()) ?? [:]
+            if status["quality"] as? String == "economy", (status["reduced"] as? [String])?.isEmpty == false { break }
+        }
+        #expect(status["quality"] as? String == "economy" && (status["reduced"] as? [String])?.count == 1, "\(status)")
     }
 }

@@ -98,12 +98,12 @@ enum EngineSupport {
     /// the main thread (`later`: the scene's package is read and its textures decoded in the background).
     @MainActor
     static func build(
-        for source: WallpaperSource, frameRate: Int, label: String, snapshotStored: @escaping @MainActor () -> Void = {}
+        for source: WallpaperSource, frameRate: Int, quality: RenderQuality = .maximum, label: String, snapshotStored: @escaping @MainActor () -> Void = {}
     ) throws -> ContentBuild {
         let item = try open(source.resolvedURL)
         let known = item.type == .scene ? cachedSceneAssets(item) : nil
         guard item.type == .scene, known == nil else {
-            return .ready(try content(for: item, assets: known, frameRate: frameRate, label: label, snapshotStored: snapshotStored))
+            return .ready(try content(for: item, assets: known, frameRate: frameRate, quality: quality, label: label, snapshotStored: snapshotStored))
         }
         return .later {
             let assets: SceneAssets?
@@ -111,24 +111,24 @@ enum EngineSupport {
                 Log.event("\(label): сцену не удалось разобрать: \(error.localizedDescription)")
                 assets = nil
             }
-            return try content(for: item, assets: assets, frameRate: frameRate, label: label, snapshotStored: snapshotStored)
+            return try content(for: item, assets: assets, frameRate: frameRate, quality: quality, label: label, snapshotStored: snapshotStored)
         }
     }
 
     /// The same, built on the calling thread: for tests and for content that needs no waiting.
     @MainActor
     static func content(
-        for source: WallpaperSource, frameRate: Int, label: String, snapshotStored: @escaping @MainActor () -> Void = {}
+        for source: WallpaperSource, frameRate: Int, quality: RenderQuality = .maximum, label: String, snapshotStored: @escaping @MainActor () -> Void = {}
     ) throws -> WallpaperContent {
         let item = try open(source.resolvedURL)
         let assets = item.type == .scene ? try? sharedSceneAssets(item) : nil
-        return try content(for: item, assets: assets, frameRate: frameRate, label: label, snapshotStored: snapshotStored)
+        return try content(for: item, assets: assets, frameRate: frameRate, quality: quality, label: label, snapshotStored: snapshotStored)
     }
 
     /// `assets` is the scene's decoded package, nil when it could not be read (the preview is shown then).
     @MainActor
     private static func content(
-        for item: EngineItem, assets: SceneAssets?, frameRate: Int, label: String, snapshotStored: @escaping @MainActor () -> Void
+        for item: EngineItem, assets: SceneAssets?, frameRate: Int, quality: RenderQuality, label: String, snapshotStored: @escaping @MainActor () -> Void
     ) throws -> WallpaperContent {
         switch item.type {
         case .video:
@@ -139,7 +139,7 @@ enum EngineSupport {
         case .scene:
             if let assets {
                 for line in assets.skipped { Log.event("\(label): сцена: \(line)") }
-                let web = WebContent(target: .scene(assets), frameRate: frameRate, label: label)
+                let web = WebContent(target: .scene(assets), frameRate: frameRate, quality: quality, label: label)
                 // Once per project: a later run finds the picture there.
                 if EngineCache.snapshot(for: item) == nil {
                     web.sceneSnapshot = { image in

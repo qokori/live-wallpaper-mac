@@ -435,15 +435,22 @@ private struct SettingsView: View {
                         Hint("«Заполнить» обрезает края, «По размеру» оставляет полосы, «Растянуть» не сохраняет пропорции. Свой масштаб для каждого экрана — на вкладке «Экраны».")
                         Hint("Звук не воспроизводится: обои играют без звуковой дорожки.")
                     }
-                    Panel("Веб-обои") {
+                    Panel("Сцены и веб-обои") {
                         HStack {
                             Text("Частота кадров")
                             Picker("Частота кадров", selection: $model.webFrameRate) {
-                                Text("30 кадров/с").tag(30)
-                                Text("60 кадров/с").tag(60)
+                                ForEach(RenderQuality.frameRates, id: \.self) { Text("\($0) кадров/с").tag($0) }
                             }
-                            .labelsHidden().pickerStyle(.segmented).frame(width: 240)
+                            .labelsHidden().pickerStyle(.segmented).frame(width: 340)
                         }
+                        HStack {
+                            Text("Качество сцен")
+                            Picker("Качество сцен", selection: $model.renderQuality) {
+                                ForEach(RenderQuality.allCases, id: \.self) { Text($0.title).tag($0) }
+                            }
+                            .labelsHidden().pickerStyle(.segmented).frame(width: 340)
+                        }
+                        Hint("«Экономное» рисует в разрешении точек экрана, картинки сцены вдвое меньше, видео не крупнее холста. «По экрану» рисует во всех пикселях экрана, видео не крупнее холста. «Максимальное» ничего не уменьшает. Смена качества перезагружает сцену на экране. Видео-обои, GIF и частота кадров видео от этих настроек не зависят.")
                         Toggle("Мышь доходит до страницы", isOn: $model.webInteractive)
                     }
                     Panel("Пауза") {
@@ -516,6 +523,16 @@ extension WallpaperSource.Kind {
         case .gif: "photo.stack"
         case .web: "globe"
         case .wallpaperEngine: "square.stack.3d.up"
+        }
+    }
+}
+
+extension RenderQuality {
+    var title: String {
+        switch self {
+        case .economy: "Экономное"
+        case .screen: "По экрану"
+        case .maximum: "Максимальное"
         }
     }
 }

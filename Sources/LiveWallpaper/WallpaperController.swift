@@ -123,6 +123,12 @@ final class WallpaperController {
         }
     }
 
+    func setRenderQuality(_ quality: RenderQuality) {
+        for wallpaper in Array(active.values) + Array(pending.values) {
+            (wallpaper.content as? WebContent)?.setQuality(quality)
+        }
+    }
+
     /// Web pages on screen with their window rectangles, for pointer forwarding.
     var webTargets: [(bounds: CGRect, content: WebContent)] {
         active.values.compactMap { wallpaper in
