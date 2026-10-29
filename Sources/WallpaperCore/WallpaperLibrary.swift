@@ -1,7 +1,7 @@
 import Foundation
 
 /// One saved wallpaper in the library: a source plus the name it is shown under.
-public struct LibraryItem: Codable, Equatable, Identifiable, Sendable {
+public struct SavedWallpaper: Codable, Equatable, Identifiable, Sendable {
     public let id: String
     public var source: WallpaperSource
     /// Own name; nil shows the source's file, folder or host name.
@@ -24,9 +24,9 @@ public struct LibraryItem: Codable, Equatable, Identifiable, Sendable {
 /// Wallpapers the person has added, in the order they were added. A source is in the library once: adding the same
 /// video, folder or address again returns the item that is already there.
 public struct WallpaperLibrary: Codable, Equatable, Sendable {
-    public private(set) var items: [LibraryItem]
+    public private(set) var items: [SavedWallpaper]
 
-    public init(items: [LibraryItem] = []) {
+    public init(items: [SavedWallpaper] = []) {
         self.items = items
     }
 
@@ -35,11 +35,11 @@ public struct WallpaperLibrary: Codable, Equatable, Sendable {
         a.kind == b.kind && a.location == b.location
     }
 
-    public func item(for source: WallpaperSource) -> LibraryItem? {
+    public func item(for source: WallpaperSource) -> SavedWallpaper? {
         items.first { Self.same($0.source, source) }
     }
 
-    public func item(id: String) -> LibraryItem? {
+    public func item(id: String) -> SavedWallpaper? {
         items.first { $0.id == id }
     }
 
@@ -48,18 +48,18 @@ public struct WallpaperLibrary: Codable, Equatable, Sendable {
     @discardableResult
     public mutating func add(
         _ source: WallpaperSource, now: Date = Date(), makeID: () -> String = { UUID().uuidString }
-    ) -> LibraryItem {
+    ) -> SavedWallpaper {
         if let index = items.firstIndex(where: { Self.same($0.source, source) }) {
             if let bookmark = source.bookmark { items[index].source.bookmark = bookmark }
             return items[index]
         }
-        let item = LibraryItem(id: makeID(), source: source, added: now)
+        let item = SavedWallpaper(id: makeID(), source: source, added: now)
         items.append(item)
         return item
     }
 
     @discardableResult
-    public mutating func remove(id: String) -> LibraryItem? {
+    public mutating func remove(id: String) -> SavedWallpaper? {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return nil }
         return items.remove(at: index)
     }
@@ -89,14 +89,14 @@ public struct LibraryStore: Sendable {
     public func load() -> WallpaperLibrary {
         guard let data = try? Data(contentsOf: fileURL) else { return WallpaperLibrary() }
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = .secondsSince1970
         return (try? decoder.decode(WallpaperLibrary.self, from: data)) ?? WallpaperLibrary()
     }
 
     public func save(_ library: WallpaperLibrary) throws {
         try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
+        encoder.dateEncodingStrategy = .secondsSince1970
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(library).write(to: fileURL, options: .atomic)
     }

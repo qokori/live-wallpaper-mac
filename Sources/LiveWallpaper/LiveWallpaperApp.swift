@@ -8,7 +8,7 @@ struct LiveWallpaperApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            MenuContent(model: delegate.model)
+            MenuContent(model: delegate.model, openWindow: { delegate.showWindow() })
         } label: {
             Image(systemName: delegate.model.isPlaying ? "play.rectangle.fill" : "play.rectangle")
         }
@@ -19,6 +19,11 @@ struct LiveWallpaperApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = AppModel()
+    private lazy var window = MainWindowController(model: model)
+
+    func showWindow() {
+        window.show()
+    }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         // Menu bar only, also when started outside the bundle (LSUIElement covers the bundled case).
@@ -34,6 +39,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         model.start()
         applyCommandLine()
+        // Opened from Applications or the Dock: show the window. At login or from the command line: stay in the menu bar.
+        if !Self.launchedInBackground { window.show() }
+        model.onNotice = { [weak self] in
+            guard let self, !self.window.isOpen else { return }
+            self.window.show()
+        }
+    }
+
+    /// Clicking the app in Applications or the Dock while it runs.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        window.show()
+        return true
+    }
+
+    private static var launchedInBackground: Bool {
+        let flags = ["--video", "--web", "--video-for", "--web-for", "--fps"]
+        if CommandLine.arguments.contains(where: flags.contains) { return true }
+        let event = NSAppleEventManager.shared().currentAppleEvent
+        return event?.paramDescriptor(forKeyword: AEKeyword(keyAEPropData))?.enumCodeValue == AEEventClass(keyAELaunchedAsLogInItem)
     }
 
     func applicationWillTerminate(_ notification: Notification) {

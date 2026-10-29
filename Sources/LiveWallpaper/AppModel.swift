@@ -4,6 +4,12 @@ import Observation
 import UniformTypeIdentifiers
 import WallpaperCore
 
+struct Notice: Identifiable {
+    let id = UUID()
+    let title: String
+    let text: String
+}
+
 enum SourceError: LocalizedError {
     case noIndexPage
     case badAddress
@@ -22,6 +28,7 @@ enum SourceError: LocalizedError {
 final class AppModel {
     private enum Key {
         static let assignments = "assignments"
+        static let libraryAdopted = "libraryAdopted"
         static let scaling = "scaling"
         static let pauseOnBattery = "pauseOnBattery"
         static let syncSystemWallpaper = "syncSystemWallpaper"
@@ -90,8 +97,24 @@ final class AppModel {
         }
     }
 
-    private(set) var screens: [ScreenStatus] = []
-    private(set) var canRestoreWallpaper = SystemWallpaper.hasOriginals
+    /// The wallpapers the person has added; saved to a file in Application Support on every change.
+    var library: WallpaperLibrary {
+        didSet {
+            guard library != oldValue else { return }
+            do { try libraryStore.save(library) } catch { Log.event("library not saved: \(error.localizedDescription)") }
+        }
+    }
+
+    /// Something to tell the person; the window shows it as an alert.
+    var notice: Notice? {
+        didSet { if notice != nil { onNotice?() } }
+    }
+    /// Brings the window up when a notice arrives while it is closed.
+    @ObservationIgnored var onNotice: (() -> Void)?
+
+    /// Connected displays and what each shows; the controller refreshes it, tests set it.
+    var screens: [ScreenStatus] = []
+    var canRestoreWallpaper = SystemWallpaper.hasOriginals
 
     var perScreen: Bool {
         get { assignments.mode == .perScreen }
@@ -100,21 +123,36 @@ final class AppModel {
 
     var isPlaying: Bool { screens.contains(where: \.playing) }
 
-    @ObservationIgnored private let defaults = UserDefaults.standard
+    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let libraryStore: LibraryStore
     @ObservationIgnored private let controller = WallpaperController()
     @ObservationIgnored private let monitor = SystemMonitor()
     @ObservationIgnored private let pointer = PointerForwarder()
 
-    init() {
-        let defaults = UserDefaults.standard
+    /// Settings and the library live in `defaults` and `libraryStore`; tests pass their own.
+    init(
+        defaults: UserDefaults = .standard,
+        libraryStore: LibraryStore = LibraryStore(fileURL: URL.applicationSupportDirectory.appending(path: "LiveWallpaper/library.json"))
+    ) {
+        self.defaults = defaults
+        self.libraryStore = libraryStore
         let data = defaults.data(forKey: Key.assignments)
-        assignments = data.flatMap { try? JSONDecoder().decode(WallpaperAssignments.self, from: $0) } ?? WallpaperAssignments()
+        let chosen = data.flatMap { try? JSONDecoder().decode(WallpaperAssignments.self, from: $0) } ?? WallpaperAssignments()
+        assignments = chosen
         scaling = defaults.data(forKey: Key.scaling).flatMap { try? JSONDecoder().decode(ScalingChoices.self, from: $0) } ?? ScalingChoices()
         pauseOnBattery = defaults.bool(forKey: Key.pauseOnBattery)
         syncSystemWallpaper = defaults.object(forKey: Key.syncSystemWallpaper) as? Bool ?? true
         webInteractive = defaults.bool(forKey: Key.webInteractive)
         webFrameRate = defaults.integer(forKey: Key.webFrameRate) == 60 ? 60 : 30
         launchAtLogin = LaunchAtLogin.isEnabled
+        var library = libraryStore.load()
+        // Once, on the first launch with a library: the choices made before it existed. Later ones come in through apply.
+        if !defaults.bool(forKey: Key.libraryAdopted) {
+            library.adopt(chosen)
+            try? libraryStore.save(library)
+            defaults.set(true, forKey: Key.libraryAdopted)
+        }
+        self.library = library
     }
 
     func start() {
@@ -128,8 +166,8 @@ final class AppModel {
             guard let self, self.syncSystemWallpaper, source.kind == .video else { return }
             self.applyFrame(of: source, toDisplay: uuid)
         }
-        controller.onFailure = { source, error in
-            Self.alert("Не удалось показать «\(source.title)»", error.localizedDescription)
+        controller.onFailure = { [weak self] source, error in
+            self?.notice = Notice(title: "Не удалось показать «\(source.title)»", text: error.localizedDescription)
         }
         pointer.targets = { [weak self] in self?.controller.webTargets.filter { $0.content.isPlaying } ?? [] }
         pointer.setEnabled(webInteractive)
@@ -166,57 +204,56 @@ final class AppModel {
         return "Пауза: " + (reason?.title ?? "")
     }
 
-    func chooseVideo(forDisplay uuid: String?) {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.movie]
-        panel.message = panelMessage("Видео (mp4, mov, HEVC)", uuid)
-        guard let url = run(panel) else { return }
-        setSource(WallpaperSource(kind: .video, location: url.path, bookmark: try? url.bookmarkData()), forDisplay: uuid)
-    }
-
-    func chooseWebFolder(forDisplay uuid: String?) {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.allowedContentTypes = [.html]
-        panel.message = panelMessage("Папка с index.html или файл .html", uuid)
-        guard let url = run(panel) else { return }
-        setSource(WallpaperSource(kind: .web, location: url.path, bookmark: try? url.bookmarkData()), forDisplay: uuid)
-    }
-
-    func enterWebAddress(forDisplay uuid: String?) {
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 24))
-        field.placeholderString = "https://example.com/wallpaper/"
-        if let current = assignments.shared, current.isRemote { field.stringValue = current.location }
-        let alert = NSAlert()
-        alert.messageText = "Адрес веб-страницы"
-        alert.informativeText = panelMessage("Страница откроется на рабочем столе", uuid)
-        alert.accessoryView = field
-        alert.addButton(withTitle: "Открыть")
-        alert.addButton(withTitle: "Отмена")
-        alert.window.initialFirstResponder = field
-        NSApp.activate()
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        guard let url = WebAddress.normalize(field.stringValue) else {
-            Self.alert("Неверный адрес", SourceError.badAddress.localizedDescription)
-            return
-        }
-        setSource(WallpaperSource(kind: .web, location: url.absoluteString), forDisplay: uuid)
-    }
-
-    /// Also used by the command line (`--video`, `--web`, `--video-for`, `--web-for`).
+    /// Also used by the command line (`--video`, `--web`, `--video-for`, `--web-for`): checks the source, keeps it in
+    /// the library and puts it on the screen, or on all screens when `uuid` is nil.
     func setSource(_ source: WallpaperSource, forDisplay uuid: String?) {
         Task {
-            if let problem = await Self.problem(with: source) {
-                Self.alert("Это не подойдёт", problem)
-                return
-            }
-            if let uuid {
-                assignments.perScreen[uuid] = source
-                assignments.mode = .perScreen
-            } else {
-                assignments.shared = source
-            }
+            guard await accept(source) else { return }
+            apply(source, to: uuid.map(ApplyTarget.display) ?? .all)
         }
+    }
+
+    /// Adds to the library only (the window's «Добавить»); returns whether the source was accepted.
+    @discardableResult
+    func addToLibrary(_ source: WallpaperSource) async -> Bool {
+        guard await accept(source) else { return false }
+        library.add(source)
+        return true
+    }
+
+    func addWebAddress(_ text: String) async -> Bool {
+        guard let url = WebAddress.normalize(text) else {
+            notice = Notice(title: "Неверный адрес", text: SourceError.badAddress.localizedDescription)
+            return false
+        }
+        return await addToLibrary(WallpaperSource(kind: .web, location: url.absoluteString))
+    }
+
+    func apply(_ source: WallpaperSource, to target: ApplyTarget) {
+        library.add(source)
+        assignments.apply(source, to: target)
+    }
+
+    func apply(_ item: SavedWallpaper, to target: ApplyTarget) {
+        apply(item.source, to: target)
+    }
+
+    func removeFromLibrary(_ item: SavedWallpaper) {
+        library.remove(id: item.id)
+    }
+
+    /// Displays that show this item now, by name.
+    func screenNames(showing item: SavedWallpaper) -> [String] {
+        let ids = assignments.displays(showing: item.source, among: screens.map(\.id))
+        return screens.filter { ids.contains($0.id) }.map(\.name)
+    }
+
+    private func accept(_ source: WallpaperSource) async -> Bool {
+        if let problem = await Self.problem(with: source) {
+            notice = Notice(title: "Это не подойдёт", text: problem)
+            return false
+        }
+        return true
     }
 
     func useShared(forDisplay uuid: String) {
@@ -317,17 +354,6 @@ final class AppModel {
         }
     }
 
-    private func panelMessage(_ text: String, _ uuid: String?) -> String {
-        if let uuid, let screen = screens.first(where: { $0.id == uuid }) { return "\(text) — экран «\(screen.name)»" }
-        return perScreen ? "\(text) — для экранов без своих обоев" : "\(text) — для всех экранов"
-    }
-
-    private func run(_ panel: NSOpenPanel) -> URL? {
-        panel.allowsMultipleSelection = false
-        NSApp.activate()
-        return panel.runModal() == .OK ? panel.url : nil
-    }
-
     private static func problem(with source: WallpaperSource) async -> String? {
         switch source.kind {
         case .web where source.isRemote:
@@ -345,14 +371,6 @@ final class AppModel {
             }
             return nil
         }
-    }
-
-    private static func alert(_ title: String, _ text: String) {
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = text
-        NSApp.activate()
-        alert.runModal()
     }
 }
 
