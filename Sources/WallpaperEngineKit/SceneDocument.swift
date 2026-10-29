@@ -39,7 +39,6 @@ public struct SceneDocument: Sendable {
     public struct Omissions: Sendable, Equatable {
         public var effects = 0
         public var particles = 0
-        public var sounds = 0
         public var texts = 0
         public var lights = 0
         public var shapes = 0
@@ -51,7 +50,7 @@ public struct SceneDocument: Sendable {
 
         /// "эффекты (12), частицы (3)": the kinds that are left out, with their counts.
         public var parts: [String] {
-            [("эффекты", effects), ("частицы", particles), ("анимация слоёв", animatedLayers), ("звук", sounds), ("текст", texts),
+            [("эффекты", effects), ("частицы", particles), ("анимация слоёв", animatedLayers), ("текст", texts),
              ("свет", lights), ("фигуры", shapes)].filter { $0.1 > 0 }.map { "\($0.0) (\($0.1))" }
         }
     }
@@ -139,11 +138,13 @@ public struct SceneDocument: Sendable {
                 guard Self.unusable(Self.resolve(object[field], values)) else { continue }
                 notes.append("\(name): поле \(field) отброшено (не число или вне допустимых пределов)")
             }
+            // A hidden object (often switched by a user property) is neither drawn nor missed.
+            if isHidden(id) { continue }
             if let kind = ["particle", "sound", "text", "light", "shape"].first(where: { object[$0] != nil }) {
                 skipped.append("\(name): \(Self.reasons[kind] ?? kind)")
                 switch kind {
                 case "particle": omissions.particles += 1
-                case "sound": omissions.sounds += 1
+                case "sound": break // the app plays no sound by design: not something the picture is missing
                 case "text": omissions.texts += 1
                 case "light": omissions.lights += 1
                 default: omissions.shapes += 1
@@ -155,7 +156,6 @@ public struct SceneDocument: Sendable {
                 skipped.append("\(name): служебная модель \(model)")
                 continue
             }
-            if isHidden(id) { continue }
             guard let resolved = Self.chain(model, files) else {
                 skipped.append("\(name): нет модели, материала или текстуры для \(model)")
                 continue

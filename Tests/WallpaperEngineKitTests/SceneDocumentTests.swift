@@ -141,9 +141,19 @@ import Testing
         {"id":2,"particle":"p"},{"id":3,"particle":"q"},{"id":4,"sound":["s"]},{"id":5,"text":{}},{"id":6,"light":"l"}
         """)
         let found = doc.omissions
-        #expect(found.effects == 2 && found.particles == 2 && found.sounds == 1 && found.texts == 1 && found.lights == 1 && found.animatedLayers == 1)
-        #expect(found.parts == ["эффекты (2)", "частицы (2)", "анимация слоёв (1)", "звук (1)", "текст (1)", "свет (1)"])
+        #expect(found.effects == 2 && found.particles == 2 && found.texts == 1 && found.lights == 1 && found.animatedLayers == 1)
+        #expect(found.parts == ["эффекты (2)", "частицы (2)", "анимация слоёв (1)", "текст (1)", "свет (1)"])
         #expect(!found.isEmpty)
+    }
+
+    @Test func hiddenObjectsAndSoundAreNotCountedAsMissing() throws {
+        let doc = try document("""
+        {"id":1,"image":"models/a.json","size":"1 1"},
+        {"id":2,"particle":"p","visible":false},{"id":3,"light":"l","visible":false},{"id":4,"text":{},"visible":false},
+        {"id":5,"sound":["s"]},{"id":6,"particle":"q","parent":3}
+        """)
+        // Sound is not played by the app at all, so no card should say it is missing; the particle under a hidden parent is hidden too.
+        #expect(doc.omissions.isEmpty, "\(doc.omissions.parts)")
     }
 
     @Test func aPlainSceneLeavesNothingOutAndIsCheckedWithoutDecodingTextures() throws {
