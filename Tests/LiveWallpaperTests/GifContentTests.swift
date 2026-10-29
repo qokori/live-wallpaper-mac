@@ -45,8 +45,9 @@ import WallpaperCore
         func note() { if let image = layer.contents { seen.insert(ObjectIdentifier(image as AnyObject)) } }
         note()
         content.setPlaying(true)
-        let end = Date().addingTimeInterval(0.6)
-        while Date() < end { note(); try? await Task.sleep(for: .milliseconds(5)) }
+        // A loaded machine (other suites drive web views at the same time) may be late: wait up to 3 s for a second frame.
+        let end = Date().addingTimeInterval(3)
+        while Date() < end, seen.count < 2 { note(); try? await Task.sleep(for: .milliseconds(5)) }
         #expect(seen.count >= 2, "frames did not advance")
 
         content.setPlaying(false)
