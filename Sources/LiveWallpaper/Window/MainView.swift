@@ -105,6 +105,10 @@ private struct LibraryView: View {
             HStack {
                 Text("Библиотека").font(.title2.bold())
                 Spacer()
+                if let name = model.converting {
+                    ProgressView().controlSize(.small)
+                    Text("Превращаю «\(name)» в видео…").font(.callout).foregroundStyle(.secondary)
+                }
                 Menu {
                     Button("Видео…") { pick(.video) }
                     Button("GIF…") { pick(.gif) }

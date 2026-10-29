@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Darwin
 import Foundation
 import ImageIO
@@ -102,5 +103,43 @@ import WallpaperCore
         let after = Self.footprintMB()
         print(String(format: "GIFMEASURE %dx%d x%d @%.0f fps: file %.1f MB, all decoded would be %.0f MB (%@); footprint +%.0f MB while playing (peak), %+.0f MB after stop; CPU %.1f%% of one core; %.0f frames/s seen (sampled), decode %.1f ms/frame",
                      width, height, frames, 1 / delay, fileMB, allDecodedMB, policy as NSString, peak - before, after - before, cpu, Double(changes) / 6, decodeMs))
+    }
+
+    /// LW_MEASURE=video<0|1|2>: the same pictures turned into video. Per frame, what the app process spends to decode it
+    /// (AVAssetReader, decompressed to BGRA) against what the GIF decoder spends; the hardware decoder runs in a system
+    /// process and is not counted here, like in the earlier video measurements.
+    @Test(.enabled(if: GifMeasureTests.enabled)) func afterConversion() async throws {
+        guard let value = ProcessInfo.processInfo.environment["LW_MEASURE"], value.hasPrefix("video"), let index = Int(value.dropFirst(5)) else { return }
+        let (width, height, frames, delay) = Self.cases[index]
+        let gif = Self.directory.appending(path: "\(width)x\(height).gif")
+        let video = Self.directory.appending(path: "\(width)x\(height).mp4")
+        try? FileManager.default.removeItem(at: video)
+        let converting = ProcessInfo.processInfo.systemUptime
+        try await GifTranscoder.convert(gif, to: video, maxSide: 3840)
+        let convertSeconds = ProcessInfo.processInfo.systemUptime - converting
+        let videoMB = Double(try video.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) / 1_048_576
+
+        let asset = AVURLAsset(url: video)
+        let track = try #require(try await asset.loadTracks(withMediaType: .video).first)
+        let before = Self.footprintMB()
+        var wall = 0.0
+        var cpu = 0.0
+        var count = 0
+        for _ in 0..<5 {
+            let reader = try AVAssetReader(asset: asset)
+            let output = AVAssetReaderTrackOutput(track: track, outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
+            reader.add(output)
+            reader.startReading()
+            let cpu0 = Self.cpuSeconds()
+            let wall0 = ProcessInfo.processInfo.systemUptime
+            while let sample = output.copyNextSampleBuffer() { _ = sample; count += 1 }
+            wall += ProcessInfo.processInfo.systemUptime - wall0
+            cpu += Self.cpuSeconds() - cpu0
+        }
+        let peak = Self.footprintMB()
+        let fps = 1 / delay
+        print(String(format: "VIDEOMEASURE %dx%d x%d @%.0f fps: gif %.1f MB -> mp4 %.1f MB in %.1f s; per frame: wall %.1f ms, app CPU %.1f ms, which at %.0f fps is %.1f%% of a core; footprint +%.0f MB",
+                     width, height, frames, fps, Double(try gif.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) / 1_048_576, videoMB, convertSeconds,
+                     wall / Double(count) * 1000, cpu / Double(count) * 1000, fps, cpu / Double(count) * fps * 100, peak - before))
     }
 }
