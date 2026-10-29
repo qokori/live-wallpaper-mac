@@ -59,13 +59,28 @@ public final class SceneAssets: @unchecked Sendable {
 
     private let index: [String: Int]
 
-    /// Whether the scene has something to draw, found without unpacking any texture: the description reads, and a
-    /// layer's texture file exists. Cheap enough for a list of scenes.
-    public static func canDraw(files: EngineFileSystem, project: EngineProject) -> Bool {
+    /// What the library card needs to know about a scene, found without unpacking any texture.
+    public struct Check: Sendable, Equatable {
+        /// The description reads and a layer's texture file exists: the scene is drawn, not only shown by its preview.
+        public let drawable: Bool
+        public let omissions: SceneDocument.Omissions
+
+        public init(drawable: Bool, omissions: SceneDocument.Omissions) {
+            self.drawable = drawable
+            self.omissions = omissions
+        }
+    }
+
+    public static func check(files: EngineFileSystem, project: EngineProject) -> Check {
         guard let data = files.data(project.file ?? "scene.json"),
               let document = try? SceneDocument(data: data, files: files, properties: project.properties)
-        else { return false }
-        return document.textures.contains { files.contains($0) }
+        else { return Check(drawable: false, omissions: .init()) }
+        return Check(drawable: document.textures.contains { files.contains($0) }, omissions: document.omissions)
+    }
+
+    /// Whether the scene has something to draw; cheap enough for a list of scenes.
+    public static func canDraw(files: EngineFileSystem, project: EngineProject) -> Bool {
+        check(files: files, project: project).drawable
     }
 
     /// Numbers the page gets must be finite: JSON cannot hold anything else.

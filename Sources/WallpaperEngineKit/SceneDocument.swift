@@ -35,6 +35,27 @@ public struct SceneDocument: Sendable {
         public let mouseInfluence: Double
     }
 
+    /// What the scene holds that the renderer leaves out, counted for the library card.
+    public struct Omissions: Sendable, Equatable {
+        public var effects = 0
+        public var particles = 0
+        public var sounds = 0
+        public var texts = 0
+        public var lights = 0
+        public var shapes = 0
+        public var animatedLayers = 0
+
+        public init() {}
+
+        public var isEmpty: Bool { parts.isEmpty }
+
+        /// "эффекты (12), частицы (3)": the kinds that are left out, with their counts.
+        public var parts: [String] {
+            [("эффекты", effects), ("частицы", particles), ("анимация слоёв", animatedLayers), ("звук", sounds), ("текст", texts),
+             ("свет", lights), ("фигуры", shapes)].filter { $0.1 > 0 }.map { "\($0.0) (\($0.1))" }
+        }
+    }
+
     public enum Failure: Error, Equatable, LocalizedError {
         case unreadable
         case noLayers
@@ -53,6 +74,7 @@ public struct SceneDocument: Sendable {
     public let parallax: Parallax
     public let layers: [Layer]
     public let skipped: [String]
+    public let omissions: Omissions
 
     /// Texture paths in first-use order; the index is the texture's number for the renderer.
     public var textures: [String] {
@@ -83,6 +105,7 @@ public struct SceneDocument: Sendable {
         var layers: [Layer] = []
         var worlds: [Int: [Double]] = [:]
         var hidden = Set<Int>()
+        var omissions = Omissions()
 
         func world(of id: Int, depth: Int = 0) -> [Double] {
             if let cached = worlds[id] { return cached }
@@ -118,6 +141,13 @@ public struct SceneDocument: Sendable {
             }
             if let kind = ["particle", "sound", "text", "light", "shape"].first(where: { object[$0] != nil }) {
                 skipped.append("\(name): \(Self.reasons[kind] ?? kind)")
+                switch kind {
+                case "particle": omissions.particles += 1
+                case "sound": omissions.sounds += 1
+                case "text": omissions.texts += 1
+                case "light": omissions.lights += 1
+                default: omissions.shapes += 1
+                }
                 continue
             }
             guard let model = object["image"] as? String else { continue } // a group: only its transform matters
@@ -137,8 +167,8 @@ public struct SceneDocument: Sendable {
                 continue
             }
             let effects = (object["effects"] as? [[String: Any]])?.filter { Self.bool(Self.resolve($0["visible"], values)) != false }.count ?? 0
-            if effects > 0 { skipped.append("\(name): эффектов \(effects), не рисуются") }
-            if object["animationlayers"] != nil { skipped.append("\(name): анимация слоя не рисуется") }
+            if effects > 0 { skipped.append("\(name): эффектов \(effects), не рисуются"); omissions.effects += effects }
+            if object["animationlayers"] != nil { skipped.append("\(name): анимация слоя не рисуется"); omissions.animatedLayers += 1 }
             let blending = Blending(name: resolved.blending)
             layers.append(Layer(
                 id: id, name: name, texture: resolved.texture,
@@ -155,6 +185,7 @@ public struct SceneDocument: Sendable {
         guard !layers.isEmpty else { throw Failure.noLayers }
         self.layers = layers
         self.skipped = skipped + notes
+        self.omissions = omissions
     }
 
     private static let reasons = [

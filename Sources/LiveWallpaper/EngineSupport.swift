@@ -171,7 +171,7 @@ enum EngineSupport {
     }
 
     private nonisolated(unsafe) static var shared: [String: WeakAssets] = [:]
-    private nonisolated(unsafe) static var drawable: [String: Bool] = [:]
+    private nonisolated(unsafe) static var checks: [String: SceneAssets.Check] = [:]
     private static let cacheLock = NSLock()
 
     /// Identifies a project's content: where it is and when its package last changed.
@@ -232,21 +232,24 @@ enum EngineSupport {
         inFlight[key] = nil
     }
 
-    /// Whether the scene is drawn (and not only shown by its preview). Decodes no texture, so it is cheap, but it
-    /// reads files: call it off the main thread. Remembered until the project's package changes.
-    static func sceneIsDrawn(_ source: WallpaperSource) -> Bool {
-        guard let item = try? open(source.resolvedURL) else { return false }
+    /// Whether the scene is drawn (and not only shown by its preview) and what it leaves out. Decodes no texture, so it
+    /// is cheap, but it reads files: call it off the main thread. Remembered until the project's package changes.
+    static func sceneCheck(_ source: WallpaperSource) -> SceneAssets.Check {
+        guard let item = try? open(source.resolvedURL) else { return .init(drawable: false, omissions: .init()) }
         let key = key(item)
         cacheLock.lock()
-        let known = drawable[key]
+        let known = checks[key]
         cacheLock.unlock()
         if let known { return known }
-        let result = (try? sceneFiles(item)).map { SceneAssets.canDraw(files: $0, project: item.project) } ?? false
+        let result = (try? sceneFiles(item)).map { SceneAssets.check(files: $0, project: item.project) }
+            ?? .init(drawable: false, omissions: .init())
         cacheLock.lock()
-        drawable[key] = result
+        checks[key] = result
         cacheLock.unlock()
         return result
     }
+
+    static func sceneIsDrawn(_ source: WallpaperSource) -> Bool { sceneCheck(source).drawable }
 
     /// The file whose first frame becomes the desktop picture: the video, a drawn scene's snapshot (its preview until
     /// there is one). Pages have none.

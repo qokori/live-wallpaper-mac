@@ -135,6 +135,23 @@ import Testing
         #expect(throws: SceneDocument.Failure.unreadable) { try SceneDocument(data: Data("not json".utf8), files: fs) }
     }
 
+    @Test func whatIsLeftOutIsCountedForTheLibraryCard() throws {
+        let doc = try document("""
+        {"id":1,"image":"models/a.json","size":"1 1","effects":[{"visible":true},{"visible":true},{"visible":false}],"animationlayers":[{}]},
+        {"id":2,"particle":"p"},{"id":3,"particle":"q"},{"id":4,"sound":["s"]},{"id":5,"text":{}},{"id":6,"light":"l"}
+        """)
+        let found = doc.omissions
+        #expect(found.effects == 2 && found.particles == 2 && found.sounds == 1 && found.texts == 1 && found.lights == 1 && found.animatedLayers == 1)
+        #expect(found.parts == ["эффекты (2)", "частицы (2)", "анимация слоёв (1)", "звук (1)", "текст (1)", "свет (1)"])
+        #expect(!found.isEmpty)
+    }
+
+    @Test func aPlainSceneLeavesNothingOutAndIsCheckedWithoutDecodingTextures() throws {
+        let (fs, _) = try files(#"{"id":1,"image":"models/a.json","size":"10 10"}"#)
+        let check = SceneAssets.check(files: fs, project: try EngineProject(data: EngineFixtures.projectJSON()))
+        #expect(check.drawable && check.omissions.isEmpty)
+    }
+
     @Test func texturesListEachFileOnceInFirstUseOrder() throws {
         let doc = try document("""
         {"id":1,"image":"models/b.json","size":"1 1"},{"id":2,"image":"models/a.json","size":"1 1"},{"id":3,"image":"models/b.json","size":"1 1"}

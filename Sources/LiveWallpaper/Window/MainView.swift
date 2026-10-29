@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 import WallpaperCore
+import WallpaperEngineKit
 
 enum MainTab: String, CaseIterable, Identifiable {
     case library = "Библиотека"
@@ -189,7 +190,7 @@ private struct Card: View {
     let item: SavedWallpaper
     let isSelected: Bool
     /// nil until worked out off the main thread.
-    @State private var sceneDrawn: Bool?
+    @State private var sceneCheck: SceneAssets.Check?
 
     var body: some View {
         let shownOn = model.screenNames(showing: item)
@@ -200,7 +201,14 @@ private struct Card: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                 HStack(spacing: 4) {
                     Badge(text: item.source.kind.badge)
-                    if item.source.engine == .scene, sceneDrawn == false { Badge(text: "сцена: пока превью") }
+                    if item.source.engine == .scene, let check = sceneCheck {
+                        if !check.drawable {
+                            Badge(text: "сцена: пока превью")
+                        } else if !check.omissions.isEmpty {
+                            Badge(text: "упрощено")
+                                .help("Не рисуется: " + check.omissions.parts.joined(separator: ", "))
+                        }
+                    }
                     if isMissing { Badge(text: "Нет файла", warning: true) }
                 }
                 .padding(6)
@@ -215,7 +223,7 @@ private struct Card: View {
         .task(id: item.source.location) {
             guard item.source.engine == .scene else { return }
             let source = item.source
-            sceneDrawn = await Task.detached(priority: .utility) { EngineSupport.sceneIsDrawn(source) }.value
+            sceneCheck = await Task.detached(priority: .utility) { EngineSupport.sceneCheck(source) }.value
         }
     }
 
