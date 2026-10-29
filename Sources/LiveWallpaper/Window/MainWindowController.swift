@@ -65,8 +65,9 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             panel.allowedContentTypes = [.html]
             panel.message = "Папка с index.html или файл .html"
         }
-        let finish: (NSApplication.ModalResponse) -> Void = { [weak self, weak panel] response in
-            guard response == .OK, let urls = panel?.urls else { return }
+        let finish: (NSApplication.ModalResponse) -> Void = { [weak self, panel] response in
+            guard response == .OK else { return }
+            let urls = panel.urls
             self?.add(urls)
         }
         if let window, window.isVisible {

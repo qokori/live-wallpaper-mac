@@ -18,6 +18,19 @@ SKIP_INSTALL=1 ./scripts/build-app.sh   # build only
 
 The bundle is ad-hoc signed and not notarized.
 
+### First launch
+
+Gatekeeper shows "Apple could not verify…" on first launch. Move the app to Applications first (don't run it from
+the disk image), then once:
+
+1. In the warning dialog click **Done** (not "Move to Trash").
+2. System Settings → Privacy & Security → scroll down to "LiveWallpaper was blocked" → **Open Anyway** → password
+   or Touch ID.
+
+Or in Terminal: `xattr -dr com.apple.quarantine /Applications/LiveWallpaper.app`, then launch normally.
+
+On macOS 14, right-click → **Open** → **Open** also works; on macOS 15 and later it no longer bypasses the check.
+
 ## Features
 
 - Video (mp4/mov, H.264, HEVC): `AVQueuePlayer` + `AVPlayerLooper` over the video track only, muted, no gap at
