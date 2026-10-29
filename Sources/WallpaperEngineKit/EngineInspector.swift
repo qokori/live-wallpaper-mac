@@ -27,12 +27,34 @@ public enum EngineInspector {
             let bytes = archive.entries.reduce(0) { $0 + $1.length }
             lines.append("пакет: \(package.lastPathComponent), \(archive.version), файлов \(archive.entries.count), данных \(bytes) байт")
             if let scene = archive.contents(of: "scene.json") { lines.append(contentsOf: sceneLines(scene)) }
+            lines.append(contentsOf: drawingLines(location: location, project: project))
             lines.append("файлы:")
             for entry in archive.entries { lines.append("  \(entry.path) (\(entry.length))") }
         } catch {
             lines.append("пакет: \(package.lastPathComponent): \(error.localizedDescription)")
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// What the app would draw: layers and textures, and what it leaves out and why.
+    static func drawingLines(location: EngineLocation, project: EngineProject) -> [String] {
+        guard project.kind == .scene else { return [] }
+        do {
+            let assets = try SceneAssets(files: EngineFileSystem(location: location), project: project)
+            let videos = assets.textures.filter { $0.kind == "video" }.count
+            var lines = ["рисуется: слоёв \(assets.document.layers.count), текстур \(assets.textures.count) (видео \(videos))"]
+            let parallax = assets.document.parallax
+            if parallax.enabled {
+                lines.append("параллакс: amount \(parallax.amount), delay \(parallax.delay), mouseinfluence \(parallax.mouseInfluence)")
+            }
+            for layer in assets.document.layers {
+                lines.append("  слой «\(layer.name)» \(layer.texture) режим \(layer.blendMode) смешивание \(layer.blending)")
+            }
+            lines.append(contentsOf: assets.skipped.map { "не рисуется: \($0)" })
+            return lines
+        } catch {
+            return ["рисуется: нет (\(error.localizedDescription)), будет превью"]
+        }
     }
 
     /// Counts of objects by kind and of effects in `scene.json`.

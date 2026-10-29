@@ -33,4 +33,22 @@ import Testing
         }
         #expect(try !EngineInspector.report(for: folder).isEmpty)
     }
+
+    @Test(arguments: folders)
+    func sceneTexturesAndLayersAreRead(folder: URL) throws {
+        let location = try EngineLocation.resolve(folder)
+        let project = try EngineProject(contentsOf: location.projectFile)
+        guard project.kind == .scene, let package = location.package else { return }
+        let archive = try PKGArchive(contentsOf: package)
+        // Every texture in the package reads (the masks and effect textures too).
+        for entry in archive.entries where entry.path.lowercased().hasSuffix(".tex") {
+            let bytes = try #require(archive.slice(of: entry.path))
+            _ = try TexFile(data: bytes)
+        }
+        let assets = try SceneAssets(files: EngineFileSystem(location: location), project: project)
+        #expect(!assets.document.layers.isEmpty)
+        #expect(assets.textures.count >= 1)
+        let report = try EngineInspector.report(for: folder)
+        #expect(report.contains("рисуется: слоёв"))
+    }
 }

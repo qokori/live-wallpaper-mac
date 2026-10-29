@@ -96,6 +96,12 @@ public struct PKGArchive: Sendable {
         return data.subdata(in: entry.offset..<(entry.offset + entry.length))
     }
 
+    /// The same bytes without a copy: a window onto the mapped file. Large video textures are read this way.
+    public func slice(of path: String) -> Data? {
+        guard let entry = entry(path) else { return nil }
+        return data[(data.startIndex + entry.offset)..<(data.startIndex + entry.offset + entry.length)]
+    }
+
     private struct Reader {
         let data: Data
         private(set) var position = 0
