@@ -68,6 +68,10 @@ still ad-hoc signed and not notarized. Read the script first if you like: [scrip
   keeps only the frame on screen and the next one, and one bigger than the screen is decoded at screen size. No sound.
   Add it like a video: Library → Add → GIF…, drag the file into the window, or `--video clip.gif` on the command line
   (`--video` and `--video-for` take a `.gif` / `.apng` / `.png` (an APNG usually keeps the .png name; a still .png is refused) as well as a video). A GIF needs more than one frame.
+  A GIF whose frames do not fit that budget is turned into an H.264 video when it is added (Library button or drag and
+  drop; `--video` does not convert), kept in `~/Library/Application Support/LiveWallpaper/Converted` and removed with its
+  library entry; the original file is never touched, and a failed conversion leaves the GIF as it was. Measured: the app
+  spent 23.7 % / 38.8 % of a core on 1280x720 / 1920x1080 GIFs and 0.4 % on the video made from them.
 - Web page from an http(s) address, a folder with `index.html` or an `.html` file; 15, 30 or 60 fps cap (also for Wallpaper Engine scenes, which have a quality setting too: economy, to the screen, maximum); optional
   interactive mode that forwards pointer moves and clicks on the bare desktop to the page while the Finder icons
   keep working.
