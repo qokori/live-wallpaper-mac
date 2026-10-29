@@ -91,3 +91,21 @@ import Testing
         #expect(locked["a"] == [.screenLocked])
     }
 }
+
+@Suite struct NormalizedPointerTests {
+    private let bounds = CGRect(x: 100, y: 50, width: 200, height: 100)
+
+    @Test func insideTheWindowIsAFractionFromTheTopLeft() {
+        let p = DesktopPointer.normalizedPoint(CGPoint(x: 200, y: 75), windowBounds: bounds)
+        #expect(p == CGPoint(x: 0.5, y: 0.25))
+    }
+
+    @Test func outsideIsHeldToTheNearestEdge() {
+        #expect(DesktopPointer.normalizedPoint(CGPoint(x: -500, y: 1000), windowBounds: bounds) == CGPoint(x: 0, y: 1))
+        #expect(DesktopPointer.normalizedPoint(CGPoint(x: 9000, y: -9), windowBounds: bounds) == CGPoint(x: 1, y: 0))
+    }
+
+    @Test func anEmptyWindowGivesTheMiddle() {
+        #expect(DesktopPointer.normalizedPoint(.zero, windowBounds: .zero) == CGPoint(x: 0.5, y: 0.5))
+    }
+}

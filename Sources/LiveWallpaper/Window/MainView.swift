@@ -198,7 +198,7 @@ private struct Card: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                 HStack(spacing: 4) {
                     Badge(text: item.source.kind.badge)
-                    if item.source.engine == .scene { Badge(text: "сцена: пока превью") }
+                    if item.source.engine == .scene, !EngineSupport.sceneIsDrawn(item.source) { Badge(text: "сцена: пока превью") }
                     if isMissing { Badge(text: "Нет файла", warning: true) }
                 }
                 .padding(6)

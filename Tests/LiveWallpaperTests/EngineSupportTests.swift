@@ -9,7 +9,7 @@ import WebKit
 
 /// A two-frame MP4 made with AVAssetWriter, so a video project has something real to play.
 enum TestVideo {
-    static func write(_ url: URL) async throws {
+    static func write(_ url: URL, fill: UInt8? = nil) async throws {
         let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
             AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: 64, AVVideoHeightKey: 48,
@@ -24,6 +24,11 @@ enum TestVideo {
         for index in 0..<2 {
             var buffer: CVPixelBuffer?
             CVPixelBufferCreate(nil, 64, 48, kCVPixelFormatType_32BGRA, nil, &buffer)
+            if let fill, let buffer {
+                CVPixelBufferLockBaseAddress(buffer, [])
+                memset(CVPixelBufferGetBaseAddress(buffer), Int32(fill), CVPixelBufferGetBytesPerRow(buffer) * 48)
+                CVPixelBufferUnlockBaseAddress(buffer, [])
+            }
             while !input.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(5)) }
             adaptor.append(buffer!, withPresentationTime: CMTime(value: Int64(index), timescale: 2))
         }
@@ -109,13 +114,13 @@ enum TestVideo {
         #expect(model.library.items.isEmpty)
     }
 
-    @Test func aSceneWithoutAPreviewIsRefused() async throws {
+    @Test func aSceneWithNeitherPackageNorPreviewIsRefused() async throws {
         let box = Sandbox()
         defer { box.cleanup() }
         let dir = try project(box, type: "scene", file: "scene.json", preview: nil)
         let model = box.model()
         #expect(await !model.addToLibrary(source(dir)))
-        #expect(model.notice?.text == EngineSourceError.noPreview.localizedDescription)
+        #expect(model.notice?.text == EngineSourceError.noPackage.localizedDescription)
     }
 
     @Test func aMacInstallerIsRefusedByName() async throws {

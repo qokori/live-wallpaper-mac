@@ -80,6 +80,7 @@ final class ScreenWallpaper {
         case let video as VideoContent: video.setScaling(scaling)
         case let gif as GifContent: gif.setScaling(scaling)
         case let still as StillContent: still.setScaling(scaling)
+        case let web as WebContent where web.isScene: web.setSceneScaling(scaling)
         default: return false
         }
         self.scaling = scaling

@@ -129,6 +129,7 @@ final class AppModel {
     @ObservationIgnored private let controller = WallpaperController()
     @ObservationIgnored private let monitor = SystemMonitor()
     @ObservationIgnored private let pointer = PointerForwarder()
+    @ObservationIgnored private let sceneParallax = SceneParallax()
 
     /// Settings and the library live in `defaults` and `libraryStore`; tests pass their own.
     init(
@@ -172,6 +173,7 @@ final class AppModel {
         }
         pointer.targets = { [weak self] in self?.controller.webTargets.filter { $0.content.isPlaying } ?? [] }
         pointer.setEnabled(webInteractive)
+        sceneParallax.targets = { [weak self] in self?.controller.sceneTargets ?? [] }
         monitor.onChange = { [weak self] in self?.pushConditions() }
         monitor.onWake = { [weak self] in self?.reconcile() }
         monitor.start()
@@ -241,6 +243,7 @@ final class AppModel {
 
     func removeFromLibrary(_ item: SavedWallpaper) {
         library.remove(id: item.id)
+        if item.source.kind == .wallpaperEngine, let engine = try? EngineSupport.open(item.source.resolvedURL) { EngineCache.remove(for: engine) }
     }
 
     /// Displays that show this item now, by name.
@@ -310,7 +313,9 @@ final class AppModel {
         case .gif:
             return GifContent(url: source.resolvedURL, label: label)
         case .wallpaperEngine:
-            return try EngineSupport.content(for: source, frameRate: webFrameRate, label: label)
+            return try EngineSupport.content(for: source, frameRate: webFrameRate, label: label) { [weak self] in
+                self?.sceneSnapshotStored(for: source)
+            }
         case .web where source.isRemote:
             guard let url = WebAddress.normalize(source.location) else { throw SourceError.badAddress }
             return WebContent(target: .remote(url), frameRate: webFrameRate, label: label)
@@ -358,6 +363,15 @@ final class AppModel {
     private func refreshScreens() {
         let current = controller.statuses
         if current != screens { screens = current }
+        sceneParallax.refresh()
+    }
+
+    /// A scene's snapshot is there: the desktop picture of the screens showing it is the scene itself, not its small preview.
+    private func sceneSnapshotStored(for source: WallpaperSource) {
+        guard syncSystemWallpaper else { return }
+        for screen in screens where screen.source?.location == source.location {
+            applyFrame(of: source, toDisplay: screen.id)
+        }
     }
 
     private func applyFramesToAllScreens() {

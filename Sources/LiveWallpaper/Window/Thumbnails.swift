@@ -69,6 +69,7 @@ final class Thumbnails {
     private static func engineImage(of source: WallpaperSource) async -> NSImage? {
         guard let item = try? EngineSupport.open(source.resolvedURL) else { return nil }
         if let preview = item.previewFile, let image = gifFrame(of: preview) { return image }
+        if item.type == .scene, let snapshot = EngineCache.snapshot(for: item) { return NSImage(contentsOf: snapshot) }
         if item.type == .video, let video = item.mainFile { return await frame(of: video) }
         return nil
     }

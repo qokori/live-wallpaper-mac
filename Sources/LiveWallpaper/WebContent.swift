@@ -13,6 +13,17 @@ final class WebContent: NSObject, WallpaperContent, WKNavigationDelegate {
     enum Target: Equatable {
         case remote(URL)
         case local(LocalPage)
+        /// A Wallpaper Engine scene drawn by the renderer page (see `SceneRendererPage`).
+        case scene(SceneAssets)
+
+        static func == (lhs: Target, rhs: Target) -> Bool {
+            switch (lhs, rhs) {
+            case (.remote(let a), .remote(let b)): a == b
+            case (.local(let a), .local(let b)): a == b
+            case (.scene(let a), .scene(let b)): a === b
+            default: false
+            }
+        }
     }
 
     private let target: Target
@@ -27,6 +38,11 @@ final class WebContent: NSObject, WallpaperContent, WKNavigationDelegate {
     private var playing = false
     private var frameRate: Int
     private var pauseGeneration = 0
+    private var sceneScaling: WallpaperScaling = .fill
+    private var scenePointer: CGPoint?
+    /// A scene's first drawn frame, once, for the card and the desktop picture.
+    var sceneSnapshot: (@MainActor (NSImage) -> Void)?
+    private var snapshotScheduled = false
     /// A Wallpaper Engine web project: the page gets the host it expects (see `EngineWebShim`).
     private let hasEngineShim: Bool
 
@@ -50,8 +66,14 @@ final class WebContent: NSObject, WallpaperContent, WKNavigationDelegate {
                 injectionTime: .atDocumentStart, forMainFrameOnly: true
             ))
         }
+        if case .scene(let assets) = target {
+            configuration.setURLSchemeHandler(SceneSchemeHandler(assets: assets), forURLScheme: SceneSchemeHandler.scheme)
+        }
         webView = WKWebView(frame: .zero, configuration: configuration)
         super.init()
+        if case .scene = target {
+            webView.configuration.userContentController.add(SceneMessageProxy { [weak self] message in self?.sceneMessage(message) }, name: "scene")
+        }
         webView.navigationDelegate = self
         webView.allowsMagnification = false
         webView.allowsBackForwardNavigationGestures = false
@@ -78,9 +100,12 @@ final class WebContent: NSObject, WallpaperContent, WKNavigationDelegate {
             webView.load(URLRequest(url: url))
         case .local(let page):
             webView.loadFileURL(URL(filePath: page.entry), allowingReadAccessTo: URL(filePath: page.readAccess, directoryHint: .isDirectory))
+        case .scene:
+            webView.load(URLRequest(url: SceneSchemeHandler.entry))
         }
-        // A slow remote page still shows up; its own loading screen is better than nothing.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in self?.markReady() }
+        // A slow remote page still shows up; its own loading screen is better than nothing. A scene says when it is drawn.
+        let wait: Double = if case .scene = target { 30 } else { 6 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in self?.markReady() }
     }
 
     func setPlaying(_ playing: Bool) {
@@ -92,6 +117,7 @@ final class WebContent: NSObject, WallpaperContent, WKNavigationDelegate {
         if playing {
             webView.isHidden = false
             snapshotView.isHidden = true
+            captureSnapshot()
             return
         }
         let generation = pauseGeneration
@@ -121,6 +147,63 @@ final class WebContent: NSObject, WallpaperContent, WKNavigationDelegate {
 
     var isPlaying: Bool { playing }
 
+    // MARK: Scenes
+
+    var isScene: Bool {
+        if case .scene = target { return true }
+        return false
+    }
+
+    /// A scene that follows the pointer (`cameraparallax`).
+    var wantsPointer: Bool {
+        if case .scene(let assets) = target { return assets.document.parallax.enabled && assets.document.parallax.mouseInfluence > 0 }
+        return false
+    }
+
+    func setSceneScaling(_ scaling: WallpaperScaling) {
+        sceneScaling = scaling
+        webView.evaluateJavaScript("window.__lwScene && window.__lwScene.setScaling('\(scaling.rawValue)')")
+    }
+
+    /// The pointer on this screen, 0...1 from the top left.
+    func setScenePointer(_ point: CGPoint) {
+        scenePointer = point
+        webView.evaluateJavaScript("window.__lwScene && window.__lwScene.setMouse(\(point.x), \(point.y))")
+    }
+
+    /// A picture of the scene a moment after it first draws on screen, when videos have shown their first frames.
+    private func captureSnapshot() {
+        guard sceneSnapshot != nil, loaded, playing, !snapshotScheduled else { return }
+        snapshotScheduled = true
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard let self else { return }
+            snapshotScheduled = false
+            guard !stopped, playing, let handler = sceneSnapshot, let image = try? await webView.takeSnapshot(configuration: nil) else { return }
+            sceneSnapshot = nil
+            handler(image)
+        }
+    }
+
+    /// What the renderer reports once it has drawn, for the log.
+    private func sceneMessage(_ message: [String: Any]) {
+        switch message["type"] as? String {
+        case "ready":
+            Log.event("\(label): scene drawn")
+            webView.evaluateJavaScript("window.__lwScene.status()") { [label] result, _ in
+                if let text = result as? String { Log.event("\(label): scene \(text)") }
+            }
+            markReady()
+            captureSnapshot()
+        case "error":
+            let text = message["message"] as? String ?? "?"
+            Log.event("\(label): scene failed: \(text)")
+            if !loaded, !stopped { failed?(SceneError.renderer(text)) }
+        default:
+            break
+        }
+    }
+
     func stop() {
         stopped = true
         webView.stopLoading()
@@ -145,6 +228,12 @@ final class WebContent: NSObject, WallpaperContent, WKNavigationDelegate {
         if hasEngineShim {
             webView.evaluateJavaScript(EngineWebShim.setFrameRate(frameRate))
             webView.evaluateJavaScript(EngineWebShim.setPaused(!playing))
+        }
+        if isScene {
+            // A reloaded scene page (after its process ended) starts over: scaling and pointer again.
+            setSceneScaling(sceneScaling)
+            if let scenePointer { setScenePointer(scenePointer) }
+            return
         }
         markReady()
     }
@@ -175,6 +264,7 @@ final class WebContent: NSObject, WallpaperContent, WKNavigationDelegate {
         let allowed: Bool = switch target {
         case .remote(let home): url.host == home.host || url.scheme == "about"
         case .local(let page): url.isFileURL ? page.allows(path: url.path) : url.scheme == "about"
+        case .scene: url.scheme == SceneSchemeHandler.scheme || url.scheme == "about"
         }
         if !allowed { Log.event("\(label): blocked navigation to \(url.absoluteString)") }
         decisionHandler(allowed ? .allow : .cancel)
@@ -185,5 +275,16 @@ final class WebContent: NSObject, WallpaperContent, WKNavigationDelegate {
         guard code != NSURLErrorCancelled else { return }
         Log.event("\(label): page failed: \(error.localizedDescription)")
         if !loaded, !stopped { failed?(error) }
+    }
+}
+
+
+enum SceneError: LocalizedError {
+    case renderer(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .renderer(let text): "Сцену не удалось нарисовать: \(text)"
+        }
     }
 }

@@ -114,7 +114,16 @@ final class WallpaperController {
     /// Web pages on screen with their window rectangles, for pointer forwarding.
     var webTargets: [(bounds: CGRect, content: WebContent)] {
         active.values.compactMap { wallpaper in
-            (wallpaper.content as? WebContent).map { (wallpaper.boundsInCG, $0) }
+            guard let web = wallpaper.content as? WebContent, !web.isScene else { return nil }
+            return (wallpaper.boundsInCG, web)
+        }
+    }
+
+    /// Scenes that follow the pointer, with their window rectangles.
+    var sceneTargets: [(bounds: CGRect, content: WebContent)] {
+        active.values.compactMap { wallpaper in
+            guard let web = wallpaper.content as? WebContent, web.wantsPointer else { return nil }
+            return (wallpaper.boundsInCG, web)
         }
     }
 

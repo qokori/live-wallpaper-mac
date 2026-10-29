@@ -70,6 +70,15 @@ public enum DesktopPointer {
         return CGPoint(x: point.x - windowBounds.minX, y: point.y - windowBounds.minY)
     }
 
+    /// The point's place in a wallpaper window as 0...1 from the top left, held to the window's edges. A scene on a
+    /// screen the pointer is not on still gets a position: the nearest edge.
+    public static func normalizedPoint(_ point: CGPoint, windowBounds: CGRect) -> CGPoint {
+        guard windowBounds.width > 0, windowBounds.height > 0 else { return CGPoint(x: 0.5, y: 0.5) }
+        let x = (point.x - windowBounds.minX) / windowBounds.width
+        let y = (point.y - windowBounds.minY) / windowBounds.height
+        return CGPoint(x: min(max(x, 0), 1), y: min(max(y, 0), 1))
+    }
+
     /// AppKit rectangles (origin at the bottom left of the main display) to CoreGraphics global coordinates.
     public static func cgRect(fromAppKit rect: CGRect, mainScreenHeight: CGFloat) -> CGRect {
         CGRect(x: rect.minX, y: mainScreenHeight - rect.maxY, width: rect.width, height: rect.height)
