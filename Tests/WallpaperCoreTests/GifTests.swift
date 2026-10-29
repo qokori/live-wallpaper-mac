@@ -158,6 +158,7 @@ import Testing
         #expect(WallpaperSource.Kind.detect(path: "/x/cat.gif", isDirectory: false) == .gif)
         #expect(WallpaperSource.Kind.detect(path: "/x/CAT.GIF", isDirectory: false) == .gif)
         #expect(WallpaperSource.Kind.detect(path: "/x/anim.apng", isDirectory: false) == .gif)
+        #expect(WallpaperSource.Kind.detect(path: "/x/anim.png", isDirectory: false) == .gif)
         #expect(WallpaperSource.Kind.detect(path: "/x/clip.mp4", isDirectory: false) == .video)
         #expect(WallpaperSource.Kind.detect(path: "/x/gif", isDirectory: true) == .web)
     }

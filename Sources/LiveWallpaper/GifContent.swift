@@ -11,6 +11,8 @@ final class FrameDecoder: @unchecked Sendable {
     private let side: Int?
     private let keepsAll: Bool
     private var cache: [Int: CGImage] = [:]
+    /// Pause before each decode; tests use it to make the decoder slower than the frame delays.
+    var decodeDelay: TimeInterval = 0
 
     /// `maxSide`: a picture bigger than this (the screen, in pixels) is decoded smaller.
     init?(url: URL, info: AnimatedImageInfo, maxSide: Int) {
@@ -26,6 +28,7 @@ final class FrameDecoder: @unchecked Sendable {
     /// Decodes `index` (and, when frames are not all kept, drops the others except `prefetch`), then calls back on main.
     func frame(_ index: Int, prefetch: Int, completion: @escaping @MainActor @Sendable (CGImage?) -> Void) {
         queue.async { [self] in
+            if decodeDelay > 0 { Thread.sleep(forTimeInterval: decodeDelay) }
             let image = decoded(index)
             if !keepsAll {
                 cache = cache.filter { $0.key == index || $0.key == prefetch }
@@ -82,8 +85,13 @@ final class GifContent: WallpaperContent {
     private var timer: Timer?
     private var stopped = false
     private var playing = false
-    private var shown = -1
+    private(set) var shown = -1
     private var requested = -1
+    /// Frames asked of the decoder and not yet delivered.
+    private var pending = 0
+    /// The uptime clock; tests replace it.
+    var clock: () -> Double = { ProcessInfo.processInfo.systemUptime }
+    var decodeDelay: TimeInterval = 0 { didSet { decoder?.decodeDelay = decodeDelay } }
     /// Seconds of the loop played before the last resume, and the uptime of that resume.
     private var elapsed = 0.0
     private var resumedAt = 0.0
@@ -108,6 +116,7 @@ final class GifContent: WallpaperContent {
             failed(GifError.unreadable)
             return
         }
+        decoder.decodeDelay = decodeDelay
         self.decoder = decoder
         timeline = info.timeline
         Log.event("\(label): \(url.lastPathComponent), \(info.frameCount) frames, \(String(format: "%.2f", info.timeline.duration)) s loop")
@@ -127,11 +136,13 @@ final class GifContent: WallpaperContent {
 
     func setPlaying(_ playing: Bool) {
         guard playing != self.playing else { return }
-        self.playing = playing
         if playing {
+            self.playing = true
             resume()
         } else {
+            // `position` reads the clock only while playing, so take it before the flag changes.
             elapsed = position
+            self.playing = false
             timer?.invalidate()
             timer = nil
         }
@@ -147,13 +158,13 @@ final class GifContent: WallpaperContent {
     }
 
     /// Where the loop is now, in seconds.
-    private var position: Double {
-        playing ? elapsed + (ProcessInfo.processInfo.systemUptime - resumedAt) : elapsed
+    var position: Double {
+        playing ? elapsed + (clock() - resumedAt) : elapsed
     }
 
     private func resume() {
         guard shown >= 0 else { return } // the first frame is not decoded yet; start() resumes
-        resumedAt = ProcessInfo.processInfo.systemUptime
+        resumedAt = clock()
         tick()
     }
 
@@ -163,15 +174,21 @@ final class GifContent: WallpaperContent {
         guard playing, !stopped, let decoder else { return }
         let now = position
         let index = timeline.frame(at: now)
-        if index != shown, index != requested {
+        // At most two decodes wait in the queue: a decoder slower than the delays shows the newest frame it has
+        // finished instead of falling further behind.
+        if index != shown, index != requested, pending < 2 {
             requested = index
+            pending += 1
             decoder.frame(index, prefetch: (index + 1) % timeline.frameCount) { [weak self] image in
                 guard let self, !self.stopped else { return }
-                if let image, self.requested == index {
+                self.pending -= 1
+                // Frames come back in the order they were asked for, so a finished one is never older than the one shown.
+                if let image {
                     self.gifView.layer?.contents = image
                     self.shown = index
                 }
-                self.requested = -1
+                // A later request may be in flight; only the one that finished clears the mark.
+                if self.requested == index { self.requested = -1 }
             }
         }
         let wait = timeline.untilNextFrame(after: now)

@@ -92,13 +92,14 @@ extension WallpaperAssignments {
 }
 
 extension WallpaperSource.Kind {
-    /// What a dropped or chosen file or folder is: a folder or an .html file is a page, .gif and .apng are animated
-    /// pictures, anything else a video.
+    /// What a dropped or chosen file or folder is: a folder or an .html file is a page, .gif, .apng and .png (an APNG
+    /// usually keeps the .png name) are animated pictures, anything else a video. A still .png is refused later with
+    /// "one frame, not an animation".
     public static func detect(path: String, isDirectory: Bool) -> WallpaperSource.Kind {
         if isDirectory { return .web }
         switch (path as NSString).pathExtension.lowercased() {
         case "html", "htm": return .web
-        case "gif", "apng": return .gif
+        case "gif", "apng", "png": return .gif
         default: return .video
         }
     }

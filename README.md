@@ -40,7 +40,7 @@ On macOS 14, right-click → **Open** → **Open** also works; on macOS 15 and l
   queue: a picture that fits in 64 MB of decoded frames stays decoded (no decoding while it plays), a bigger one
   keeps only the frame on screen and the next one, and one bigger than the screen is decoded at screen size. No sound.
   Add it like a video: Library → Add → GIF…, drag the file into the window, or `--video clip.gif` on the command line
-  (`--video` and `--video-for` take a `.gif` / `.apng` as well as a video). A GIF needs more than one frame.
+  (`--video` and `--video-for` take a `.gif` / `.apng` / `.png` (an APNG usually keeps the .png name; a still .png is refused) as well as a video). A GIF needs more than one frame.
 - Web page from an http(s) address, a folder with `index.html` or an `.html` file; 30 or 60 fps cap; optional
   interactive mode that forwards pointer moves and clicks on the bare desktop to the page while the Finder icons
   keep working.
