@@ -19,7 +19,7 @@ BIN_PATH="$(swift build "${BUILD_FLAGS[@]}" --show-bin-path)/$APP_NAME"
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BIN_PATH" "$APP_DIR/Contents/MacOS/$APP_NAME"
-# The app icon is drawn by code (scripts/make-icon.swift), so it is rebuilt with the app.
+# The app icon is drawn by code (Sources/LiveWallpaper/Logo.swift, built by scripts/make-icon.sh), so it is rebuilt with the app.
 "$ROOT/scripts/make-icon.sh" "$APP_DIR/Contents/Resources/AppIcon.icns"
 
 cat > "$APP_DIR/Contents/Info.plist" <<PLIST

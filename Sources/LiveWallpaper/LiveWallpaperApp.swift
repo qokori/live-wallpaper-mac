@@ -12,6 +12,7 @@ struct LiveWallpaperApp: App {
             MenuContent(model: delegate.model, openWindow: { delegate.showWindow() })
         } label: {
             Image(nsImage: Logo.menuBar(playing: delegate.model.isPlaying))
+                .renderingMode(.template)
         }
         .menuBarExtraStyle(.menu)
     }
@@ -61,7 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private static var launchedInBackground: Bool {
-        let flags = ["--video", "--web", "--video-for", "--web-for", "--we", "--we-for", "--fps"]
+        let flags = ["--video", "--web", "--video-for", "--web-for", "--we", "--we-for", "--fps", "--quality"]
         if CommandLine.arguments.contains(where: flags.contains) { return true }
         let event = NSAppleEventManager.shared().currentAppleEvent
         return event?.paramDescriptor(forKeyword: AEKeyword(keyAEPropData))?.enumCodeValue == AEEventClass(keyAELaunchedAsLogInItem)

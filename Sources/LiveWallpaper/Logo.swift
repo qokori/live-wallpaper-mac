@@ -88,6 +88,7 @@ enum Logo {
             return true
         }
         image.isTemplate = true
+        image.accessibilityDescription = "Live Wallpaper"
         return image
     }
 
