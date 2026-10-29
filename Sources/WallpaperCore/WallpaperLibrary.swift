@@ -120,15 +120,20 @@ public struct LibraryStore: Sendable {
         self.fileURL = fileURL
     }
 
-    public func load() -> WallpaperLibrary {
-        guard let data = try? Data(contentsOf: fileURL) else { return WallpaperLibrary() }
+    public func load() -> WallpaperLibrary { read().library }
+
+    /// The library and whether it was really read: a missing file is an empty library that is known to be empty; a file
+    /// that exists but cannot be read or decoded is not, and neither is one with entries this version does not know.
+    public func read() -> (library: WallpaperLibrary, complete: Bool) {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return (WallpaperLibrary(), true) }
+        guard let data = try? Data(contentsOf: fileURL) else { return (WallpaperLibrary(), false) }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .secondsSince1970
-        if let library = try? decoder.decode(WallpaperLibrary.self, from: data) { return library }
+        if let library = try? decoder.decode(WallpaperLibrary.self, from: data) { return (library, library.unreadable.isEmpty) }
         let aside = fileURL.deletingLastPathComponent().appending(path: "library.unreadable.json")
         try? FileManager.default.removeItem(at: aside)
         try? FileManager.default.copyItem(at: fileURL, to: aside)
-        return WallpaperLibrary()
+        return (WallpaperLibrary(), false)
     }
 
     public func save(_ library: WallpaperLibrary) throws {

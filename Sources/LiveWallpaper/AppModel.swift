@@ -143,6 +143,7 @@ final class AppModel {
 
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let libraryStore: LibraryStore
+    @ObservationIgnored private var knowsWhatIsUsed = false
     /// Videos made from big GIFs; the pictures themselves are never touched.
     @ObservationIgnored private let convertedDirectory: URL
     /// The longer side of the biggest screen, in pixels: the size a GIF is judged and converted at.
@@ -173,6 +174,7 @@ final class AppModel {
         self.screenSide = screenSide
         let data = defaults.data(forKey: Key.assignments)
         let chosen = data.flatMap { try? JSONDecoder().decode(WallpaperAssignments.self, from: $0) } ?? WallpaperAssignments()
+        let assignmentsRead = data == nil || data.flatMap { try? JSONDecoder().decode(WallpaperAssignments.self, from: $0) } != nil
         assignments = chosen
         scaling = defaults.data(forKey: Key.scaling).flatMap { try? JSONDecoder().decode(ScalingChoices.self, from: $0) } ?? ScalingChoices()
         pauseOnBattery = defaults.bool(forKey: Key.pauseOnBattery)
@@ -181,7 +183,10 @@ final class AppModel {
         webFrameRate = RenderQuality.frameRate(defaults.integer(forKey: Key.webFrameRate))
         renderQuality = RenderQuality(stored: defaults.string(forKey: Key.renderQuality))
         launchAtLogin = LaunchAtLogin.isEnabled
-        var library = libraryStore.load()
+        let loaded = libraryStore.read()
+        var library = loaded.library
+        // Only a library and screen choices that were both read in this run say what is in use.
+        knowsWhatIsUsed = loaded.complete && assignmentsRead
         // Once, on the first launch with a library: the choices made before it existed. Later ones come in through apply.
         if !defaults.bool(forKey: Key.libraryAdopted) {
             library.adopt(chosen)
@@ -377,11 +382,10 @@ final class AppModel {
 
     /// Deletes what is left in the folder of converted videos: a folder no library entry and no screen points to, and
     /// half-written files. A video on a screen stays even when its entry is gone, so a restart finds it. Not done when the
-    /// library could not be read (its entries are unknown then).
+    /// library or the screen choices could not be read in this run (what is in use is unknown then).
     private func collectConvertedGarbage() {
         let fm = FileManager.default
-        let unreadable = libraryStore.fileURL.deletingLastPathComponent().appending(path: "library.unreadable.json")
-        guard !fm.fileExists(atPath: unreadable.path),
+        guard knowsWhatIsUsed,
               let folders = try? fm.contentsOfDirectory(at: convertedDirectory, includingPropertiesForKeys: nil)
         else { return }
         let chosen = [assignments.shared].compactMap { $0 } + Array(assignments.perScreen.values)
@@ -541,8 +545,7 @@ final class AppModel {
             do { _ = try localPage(source.resolvedURL) } catch { return error.localizedDescription }
             return nil
         case .gif:
-            do { _ = try AnimatedImageInfo.read(source.resolvedURL) } catch { return GifError(error).localizedDescription }
-            return nil
+            return nil // a GIF is read and turned into a video (or kept) before it gets here
         case .wallpaperEngine:
             do {
                 let item = try EngineSupport.open(source.resolvedURL)

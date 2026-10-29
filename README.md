@@ -71,7 +71,7 @@ still ad-hoc signed and not notarized. Read the script first if you like: [scrip
   A GIF whose frames do not fit that budget is turned into an H.264 video when it is added (Library button or drag and
   drop; `--video` and `--video-for` convert the same way), kept in `~/Library/Application Support/LiveWallpaper/Converted` and removed
   once neither the library nor a screen uses it; the original file is never touched, and a failed conversion leaves the GIF as it was.
-  Several at once are made one after another. Measured: the app spent 23.7 % / 38.8 % of a core on 1280x720 / 1920x1080 GIFs
+  Several at once are made one after another; the frame is scaled (not cropped) to the biggest screen, at most 4096 on the long side and 8,847,360 pixels in all (the H.264 limit). Measured: the app spent 23.7 % / 38.8 % of a core on 1280x720 / 1920x1080 GIFs
   and 0.4 % on the video made from them (reading it with `AVAssetReader` in the app's process; the system decoder that plays it is not counted).
 - Web page from an http(s) address, a folder with `index.html` or an `.html` file; 15, 30 or 60 fps cap (also for Wallpaper Engine scenes, which have a quality setting too: economy, to the screen, maximum); optional
   interactive mode that forwards pointer moves and clicks on the bare desktop to the page while the Finder icons

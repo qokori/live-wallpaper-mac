@@ -19,8 +19,9 @@ enum GifTranscoder {
         }
     }
 
-    /// H.264 levels stop at 4096 pixels on the longer side.
+    /// H.264 levels stop at 4096 pixels on the longer side and at 8 847 360 pixels (4096x2160 and the like) in all.
     static let longestSide = 4096
+    static let largestArea = 8_847_360
 
     /// Where the video for `source` goes: the name carries the file's path, size and date and the size it is made at, so a
     /// changed picture or a bigger screen gets a new video and an unchanged one is reused.
@@ -40,10 +41,15 @@ enum GifTranscoder {
     /// Size of the video: the picture's, scaled down to `maxSide` (and to what H.264 takes) on its longer side, both
     /// sides even (H.264 needs it).
     static func outputSize(of info: AnimatedImageInfo, maxSide: Int) -> (width: Int, height: Int) {
-        let longer = max(info.pixelWidth, info.pixelHeight)
-        let scale = min(1, Double(min(maxSide, longestSide)) / Double(longer))
+        outputSize(width: info.pixelWidth, height: info.pixelHeight, maxSide: maxSide)
+    }
+
+    static func outputSize(width: Int, height: Int, maxSide: Int) -> (width: Int, height: Int) {
+        let longer = max(width, height)
+        let area = Double(width) * Double(height)
+        let scale = min(1, Double(min(maxSide, longestSide)) / Double(longer), (Double(largestArea) / area).squareRoot())
         func even(_ value: Double) -> Int { max(2, Int((value * scale).rounded()) / 2 * 2) }
-        return (even(Double(info.pixelWidth)), even(Double(info.pixelHeight)))
+        return (even(Double(width)), even(Double(height)))
     }
 
     static func convert(_ source: URL, to output: URL, maxSide: Int) async throws {
@@ -158,9 +164,9 @@ enum GifTranscoder {
     private final class Progress: @unchecked Sendable {
         private let lock = NSLock()
         private var index = 0
-        private var moved = ContinuousClock.now
+        private var moved = SuspendingClock.now
         var next: Int { lock.withLock { index } }
-        var idle: Duration { lock.withLock { ContinuousClock.now - moved } }
+        var idle: Duration { lock.withLock { SuspendingClock.now - moved } }
         func advance() { lock.withLock { index += 1; moved = .now } }
     }
 

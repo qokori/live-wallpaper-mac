@@ -47,6 +47,16 @@ import WallpaperCore
         #expect(whole.width == 800 && whole.height == 450, "a smaller screen never enlarges; odd sides round down to even: \(whole)")
     }
 
+    @Test func theVideoStaysWithinTheAreaH264Takes() {
+        let square = GifTranscoder.outputSize(width: 3840, height: 3840, maxSide: 8000)
+        #expect(square.width * square.height <= GifTranscoder.largestArea && square.width == square.height && square.width % 2 == 0, "\(square)")
+        #expect(square.width > 2900, "scaled to fit, not cut: \(square)")
+        let wide = GifTranscoder.outputSize(width: 4096, height: 2160, maxSide: 8000)
+        #expect(wide.width == 4096 && wide.height == 2160, "a picture that fits is not touched: \(wide)")
+        let tall = GifTranscoder.outputSize(width: 3000, height: 4000, maxSide: 8000)
+        #expect(tall.width * tall.height <= GifTranscoder.largestArea, "\(tall)")
+    }
+
     @Test func theColoursOfTheVideoAreTheGifs() async throws {
         let dir = try directory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -232,6 +242,55 @@ import WallpaperCore
         try Data("{".utf8).write(to: box.directory.appending(path: "library.json"))
         _ = model(box)
         #expect(FileManager.default.fileExists(atPath: lost.path))
+    }
+
+    private func strayFolder(_ box: Sandbox) throws -> URL {
+        let lost = converted(box).appending(path: "bbbb/lost.mp4")
+        try FileManager.default.createDirectory(at: lost.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data([1]).write(to: lost)
+        return lost
+    }
+
+    @Test func nothingIsCleanedWhenTheLibraryFileExistsButCannotBeOpened() throws {
+        let box = Sandbox()
+        defer { box.cleanup() }
+        let lost = try strayFolder(box)
+        try box.store.save(WallpaperLibrary())
+        let file = box.directory.appending(path: "library.json")
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: file.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path) }
+        _ = model(box)
+        #expect(FileManager.default.fileExists(atPath: lost.path))
+        #expect(!FileManager.default.fileExists(atPath: box.directory.appending(path: "library.unreadable.json").path), "nothing was set aside, yet nothing is deleted")
+    }
+
+    @Test func nothingIsCleanedWhenTheScreenChoicesCannotBeDecoded() throws {
+        let box = Sandbox()
+        defer { box.cleanup() }
+        let lost = try strayFolder(box)
+        box.defaults.set(Data("not json".utf8), forKey: "assignments")
+        _ = model(box)
+        #expect(FileManager.default.fileExists(atPath: lost.path))
+    }
+
+    @Test func nothingIsCleanedWhenTheLibraryHoldsEntriesThisVersionDoesNotKnow() throws {
+        let box = Sandbox()
+        defer { box.cleanup() }
+        let lost = try strayFolder(box)
+        try FileManager.default.createDirectory(at: box.directory, withIntermediateDirectories: true)
+        try Data(#"{"items":[{"id":"x","kind":"hologram"}]}"#.utf8).write(to: box.directory.appending(path: "library.json"))
+        _ = model(box)
+        #expect(FileManager.default.fileExists(atPath: lost.path))
+    }
+
+    @Test func anOldUnreadableMarkerDoesNotStopTheCleaningOfALibraryThatIsRead() throws {
+        let box = Sandbox()
+        defer { box.cleanup() }
+        let lost = try strayFolder(box)
+        try box.store.save(WallpaperLibrary())
+        try Data("old".utf8).write(to: box.directory.appending(path: "library.unreadable.json"))
+        _ = model(box)
+        #expect(!FileManager.default.fileExists(atPath: lost.deletingLastPathComponent().path))
     }
 
     @Test func severalPicturesAtOnceAreAllMadeAndTheSamePictureOnlyOnce() async throws {
