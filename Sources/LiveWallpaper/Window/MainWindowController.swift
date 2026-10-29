@@ -99,25 +99,13 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 }
 
-/// The Dock icon while the window is open: the menu bar symbol on a gradient tile.
+/// The Dock icon while the window is open: the bundled icon, or the logo drawn on the spot outside an .app.
 enum AppIcon {
     @MainActor static let image: NSImage = {
-        // The bundled icon (scripts/make-icon.swift) when running from the .app; the drawing below otherwise.
+        // The bundled icon (scripts/make-icon.swift) when running from the .app; the same drawing otherwise.
         if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"), let bundled = NSImage(contentsOf: url) {
             return bundled
         }
-        let size = NSSize(width: 512, height: 512)
-        return NSImage(size: size, flipped: false) { rect in
-            let tile = NSBezierPath(roundedRect: rect.insetBy(dx: 40, dy: 40), xRadius: 100, yRadius: 100)
-            NSGradient(colors: [NSColor(red: 0.20, green: 0.45, blue: 0.95, alpha: 1), NSColor(red: 0.55, green: 0.25, blue: 0.85, alpha: 1)])?
-                .draw(in: tile, angle: -60)
-            let configuration = NSImage.SymbolConfiguration(pointSize: 200, weight: .semibold)
-            if let symbol = NSImage(systemSymbolName: "play.rectangle.fill", accessibilityDescription: nil)?
-                .withSymbolConfiguration(configuration.applying(.init(paletteColors: [.white]))) {
-                let origin = NSPoint(x: (rect.width - symbol.size.width) / 2, y: (rect.height - symbol.size.height) / 2)
-                symbol.draw(at: origin, from: .zero, operation: .sourceOver, fraction: 1)
-            }
-            return true
-        }
+        return Logo.icon(size: 512)
     }()
 }

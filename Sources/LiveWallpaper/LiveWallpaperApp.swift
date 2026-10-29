@@ -11,7 +11,7 @@ struct LiveWallpaperApp: App {
         MenuBarExtra {
             MenuContent(model: delegate.model, openWindow: { delegate.showWindow() })
         } label: {
-            Image(systemName: delegate.model.isPlaying ? "play.rectangle.fill" : "play.rectangle")
+            Image(nsImage: Logo.menuBar(playing: delegate.model.isPlaying))
         }
         .menuBarExtraStyle(.menu)
     }

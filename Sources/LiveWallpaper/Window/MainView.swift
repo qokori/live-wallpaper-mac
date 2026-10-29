@@ -61,7 +61,7 @@ private struct Sidebar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
-                Image(systemName: "play.rectangle.fill").font(.title2).foregroundStyle(.tint)
+                Image(nsImage: Logo.template(size: 24)).renderingMode(.template).foregroundStyle(.tint)
                 Text("Live Wallpaper").font(.headline)
             }
             .padding(.bottom, 14)

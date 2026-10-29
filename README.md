@@ -16,7 +16,7 @@ swift test                              # logic tests and the app model / main w
 SKIP_INSTALL=1 ./scripts/build-app.sh   # build only
 ```
 
-The bundle is ad-hoc signed and not notarized. The app icon is drawn by code (`scripts/make-icon.swift`) and rebuilt with every `build-app.sh`.
+The bundle is ad-hoc signed and not notarized. The logo (black wavy stripes) is drawn by code (`Sources/LiveWallpaper/Logo.swift`, used by `scripts/make-icon.swift` for the app icon and as a template image for the menu bar and the window) and the icon is rebuilt with every `build-app.sh`.
 
 ### Installer disk image
 

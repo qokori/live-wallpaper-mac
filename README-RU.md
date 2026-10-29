@@ -22,7 +22,7 @@ SKIP_INSTALL=1 ./scripts/build-app.sh    # только build/, ничего н�
 open ~/Applications/LiveWallpaper.app
 ```
 
-Сборка universal (arm64 + x86_64), подпись ad-hoc, без нотаризации. Иконка приложения рисуется кодом (`scripts/make-icon.swift`) и пересобирается при каждом `build-app.sh`.
+Сборка universal (arm64 + x86_64), подпись ad-hoc, без нотаризации. Логотип (чёрные волнистые полосы) рисуется кодом (`Sources/LiveWallpaper/Logo.swift`; `scripts/make-icon.swift` берёт его для иконки приложения, строка меню и окно — тот же рисунок как template-картинка), иконка пересобирается при каждом `build-app.sh`.
 
 ### Установочный образ
 
