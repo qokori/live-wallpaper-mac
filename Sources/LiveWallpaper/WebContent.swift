@@ -1,5 +1,6 @@
 import AppKit
 import WallpaperCore
+import WallpaperEngineKit
 import WebKit
 
 /// A web page (remote address or local folder) in a WKWebView.
@@ -26,11 +27,14 @@ final class WebContent: NSObject, WallpaperContent, WKNavigationDelegate {
     private var playing = false
     private var frameRate: Int
     private var pauseGeneration = 0
+    /// A Wallpaper Engine web project: the page gets the host it expects (see `EngineWebShim`).
+    private let hasEngineShim: Bool
 
-    init(target: Target, frameRate: Int, label: String) {
+    init(target: Target, frameRate: Int, label: String, engineProperties: [EngineProject.Property]? = nil) {
         self.target = target
         self.label = label
         self.frameRate = frameRate
+        hasEngineShim = engineProperties != nil
         let configuration = WKWebViewConfiguration()
         // No sound from a wallpaper: media with audio never autoplays (there is no user gesture), muted video does.
         configuration.mediaTypesRequiringUserActionForPlayback = .audio
@@ -40,6 +44,12 @@ final class WebContent: NSObject, WallpaperContent, WKNavigationDelegate {
             // be resumed. Iframes still stop when the web view is hidden.
             injectionTime: .atDocumentStart, forMainFrameOnly: true
         ))
+        if let engineProperties {
+            configuration.userContentController.addUserScript(WKUserScript(
+                source: EngineWebShim.source(properties: engineProperties, frameRate: frameRate, paused: true),
+                injectionTime: .atDocumentStart, forMainFrameOnly: true
+            ))
+        }
         webView = WKWebView(frame: .zero, configuration: configuration)
         super.init()
         webView.navigationDelegate = self
@@ -77,6 +87,7 @@ final class WebContent: NSObject, WallpaperContent, WKNavigationDelegate {
         self.playing = playing
         pauseGeneration += 1
         webView.evaluateJavaScript(WebPageScript.setPaused(!playing))
+        if hasEngineShim { webView.evaluateJavaScript(EngineWebShim.setPaused(!playing)) }
         webView.setAllMediaPlaybackSuspended(!playing)
         if playing {
             webView.isHidden = false
@@ -99,6 +110,7 @@ final class WebContent: NSObject, WallpaperContent, WKNavigationDelegate {
     func setFrameRate(_ frameRate: Int) {
         self.frameRate = frameRate
         webView.evaluateJavaScript(WebPageScript.setFrameRate(frameRate))
+        if hasEngineShim { webView.evaluateJavaScript(EngineWebShim.setFrameRate(frameRate)) }
     }
 
     /// Interactive mode: a pointer event at a point in page (CSS) pixels.
@@ -130,6 +142,10 @@ final class WebContent: NSObject, WallpaperContent, WKNavigationDelegate {
         // Every new document (reload, link inside the folder) starts with the values baked into the user script.
         webView.evaluateJavaScript(WebPageScript.setFrameRate(frameRate))
         webView.evaluateJavaScript(WebPageScript.setPaused(!playing))
+        if hasEngineShim {
+            webView.evaluateJavaScript(EngineWebShim.setFrameRate(frameRate))
+            webView.evaluateJavaScript(EngineWebShim.setPaused(!playing))
+        }
         markReady()
     }
 

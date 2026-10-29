@@ -7,6 +7,8 @@ enum PickKind {
     case video
     case gif
     case webPage
+    /// A Wallpaper Engine project: its folder, a scene `.pkg` or its `project.json`.
+    case engine
 }
 
 /// The main window. While it is open the app has a Dock icon (activation policy regular); closed, it is a menu bar
@@ -69,6 +71,11 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             panel.canChooseDirectories = true
             panel.allowedContentTypes = [.html]
             panel.message = "Папка с index.html или файл .html"
+        case .engine:
+            panel.canChooseDirectories = true
+            panel.allowsMultipleSelection = true
+            panel.allowedContentTypes = [.json] + (UTType(filenameExtension: "pkg").map { [$0] } ?? [])
+            panel.message = "Папка проекта Wallpaper Engine, пакет .pkg или project.json (сцены пока показываются превью)"
         }
         let finish: (NSApplication.ModalResponse) -> Void = { [weak self, panel] response in
             guard response == .OK else { return }
@@ -85,8 +92,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     func add(_ urls: [URL]) {
         Task {
             for url in urls {
-                let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
-                let kind = WallpaperSource.Kind.detect(path: url.path, isDirectory: isDirectory)
+                let kind = WallpaperSource.Kind.detect(url: url)
                 await model.addToLibrary(WallpaperSource(kind: kind, location: url.path, bookmark: try? url.bookmarkData()))
             }
         }

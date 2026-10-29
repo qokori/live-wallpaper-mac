@@ -1,12 +1,22 @@
 import Foundation
 
-/// What a screen shows: a video file, an animated GIF or a web page (an http(s) address, a local folder with index.html, or an .html file).
+/// What kind of Wallpaper Engine project a source is; the type in its `project.json`. Only what can be shown at all.
+public enum EngineType: String, Codable, Sendable {
+    case scene
+    case video
+    case web
+}
+
+/// What a screen shows: a video file, an animated GIF, a web page (an http(s) address, a local folder with index.html, or an .html file)
+/// or a Wallpaper Engine project (a folder with project.json).
 public struct WallpaperSource: Codable, Equatable, Sendable {
     public enum Kind: String, Codable, Sendable {
         case video
         case web
         /// An animated picture: GIF or APNG.
         case gif
+        /// A Wallpaper Engine project: the folder with its `project.json`.
+        case wallpaperEngine
     }
 
     public var kind: Kind
@@ -14,12 +24,19 @@ public struct WallpaperSource: Codable, Equatable, Sendable {
     public var location: String
     /// Finds a local file or folder after it is moved or renamed; the path is the fallback.
     public var bookmark: Data?
+    /// For a Wallpaper Engine project: its type, filled in when it is added. It decides how the project is shown and
+    /// whether scaling applies, so the pure logic needs no file access.
+    public var engine: EngineType?
 
-    public init(kind: Kind, location: String, bookmark: Data? = nil) {
+    public init(kind: Kind, location: String, bookmark: Data? = nil, engine: EngineType? = nil) {
         self.kind = kind
         self.location = location
         self.bookmark = bookmark
+        self.engine = engine
     }
+
+    /// A page in a web view: it lays itself out and ignores scaling, and has no first frame to set as the desktop picture.
+    public var isPage: Bool { kind == .web || (kind == .wallpaperEngine && engine == .web) }
 
     public var isRemote: Bool { kind == .web && WebAddress.isRemote(location) }
 
@@ -97,10 +114,31 @@ extension WallpaperSource.Kind {
     /// "one frame, not an animation".
     public static func detect(path: String, isDirectory: Bool) -> WallpaperSource.Kind {
         if isDirectory { return .web }
+        if (path as NSString).lastPathComponent.lowercased() == "project.json" { return .wallpaperEngine }
         switch (path as NSString).pathExtension.lowercased() {
         case "html", "htm": return .web
         case "gif", "apng", "png": return .gif
+        // A Wallpaper Engine scene package. A macOS installer has the same extension; it is refused when it is read.
+        case "pkg": return .wallpaperEngine
         default: return .video
         }
+    }
+
+    /// Like `detect(path:isDirectory:)`, and a folder that holds a Wallpaper Engine `project.json` (one with a `type`)
+    /// is a project, not a page.
+    public static func detect(url: URL) -> WallpaperSource.Kind {
+        var isDirectory: ObjCBool = false
+        FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+        if isDirectory.boolValue, isEngineProjectFolder(url) { return .wallpaperEngine }
+        return detect(path: url.path, isDirectory: isDirectory.boolValue)
+    }
+
+    private static func isEngineProjectFolder(_ folder: URL) -> Bool {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        guard let name = names.first(where: { $0.lowercased() == "project.json" }),
+              let data = try? Data(contentsOf: folder.appending(path: name)) else { return false }
+        let body = data.starts(with: [0xEF, 0xBB, 0xBF]) ? data.dropFirst(3) : data
+        guard let root = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] else { return false }
+        return root.contains { $0.key.lowercased() == "type" && $0.value is String }
     }
 }

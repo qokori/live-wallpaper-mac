@@ -39,7 +39,7 @@ enum SystemWallpaper {
         let target = framesDirectory.appending(path: name)
         if FileManager.default.fileExists(atPath: target.path) { return target }
 
-        if WallpaperSource.Kind.detect(path: video.path, isDirectory: false) == .gif {
+        if ["gif", "apng", "png", "jpg", "jpeg"].contains(video.pathExtension.lowercased()) {
             let image = try firstGifFrame(of: video)
             return try writeJPEG(image, to: target)
         }
@@ -53,7 +53,7 @@ enum SystemWallpaper {
         return try writeJPEG(image, to: target)
     }
 
-    /// The first frame of a GIF or APNG, as ImageIO composes it.
+    /// The first frame of a GIF or APNG, or a still picture, as ImageIO composes it.
     private static func firstGifFrame(of url: URL) throws -> CGImage {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let image = CGImageSourceCreateImageAtIndex(source, 0, nil)

@@ -1,6 +1,6 @@
 # Live Wallpaper for macOS
 
-Live wallpapers for the Mac desktop: a looping video, an animated GIF or a web page (HTML/CSS/JS, WebGL shaders) under the
+Live wallpapers for the Mac desktop: a looping video, an animated GIF, a web page (HTML/CSS/JS, WebGL shaders) or a Wallpaper Engine project under the
 desktop icons. A menu bar app with a main window (library, screens, settings); the Dock icon shows only while the window is
 open. AppKit, AVFoundation and WebKit; SwiftUI for the window and the menu; no third-party dependencies. MIT license.
 
@@ -58,6 +58,12 @@ On macOS 14, right-click → **Open** → **Open** also works; on macOS 15 and l
 - Web page from an http(s) address, a folder with `index.html` or an `.html` file; 30 or 60 fps cap; optional
   interactive mode that forwards pointer moves and clicks on the bare desktop to the page while the Finder icons
   keep working.
+- Wallpaper Engine projects (a Workshop folder copied to the Mac, a scene `.pkg` or a `project.json`): `video` projects play
+  their mp4/m4v/mov, `web` projects run in the web view with the `wallpaperPropertyListener` host they expect (default settings,
+  frame rate, pause); a `scene` project shows its preview picture for now ("scene: preview only" on its card); rendering
+  scenes is not done yet. Library → Add → Wallpaper Engine…, drag a folder, `.pkg` or `project.json` into the window, or
+  `--we <path>` / `--we-for <display UUID> <path>`; `--we-inspect <path>` prints what a project holds. Nothing is copied or unpacked.
+  The library file is read entry by entry: an entry of a kind this version does not know is kept and written back unchanged.
 - One source for all screens or one per screen; survives monitors being plugged in or out and resolution changes.
 - Pauses when the wallpaper is covered (fullscreen app, another Space), the screen is locked or asleep, in Low
   Power Mode, and optionally on battery.

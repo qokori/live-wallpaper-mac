@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import WallpaperCore
+import WallpaperEngineKit
 
 @main
 struct LiveWallpaperApp: App {
@@ -37,6 +38,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.terminate(nil)
             return
         }
+        // `--we-inspect <folder, project.json or .pkg>`: print what the project holds, then quit.
+        if let target = Self.value(after: "--we-inspect") {
+            Self.inspectEngineProject(target)
+            NSApp.terminate(nil)
+            return
+        }
         model.start()
         applyCommandLine()
         // Opened from Applications or the Dock: show the window. At login or from the command line: stay in the menu bar.
@@ -54,7 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private static var launchedInBackground: Bool {
-        let flags = ["--video", "--web", "--video-for", "--web-for", "--fps"]
+        let flags = ["--video", "--web", "--video-for", "--web-for", "--we", "--we-for", "--fps"]
         if CommandLine.arguments.contains(where: flags.contains) { return true }
         let event = NSAppleEventManager.shared().currentAppleEvent
         return event?.paramDescriptor(forKeyword: AEKeyword(keyAEPropData))?.enumCodeValue == AEEventClass(keyAELaunchedAsLogInItem)
@@ -64,17 +71,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.stop()
     }
 
-    /// `--video <file>` (a video, or a .gif / .apng) and `--web <address, folder or .html>` set all screens; `--video-for` / `--web-for <display UUID> …`
-    /// set one screen; `--fps 30|60` sets the web frame rate.
-    private func applyCommandLine() {
+    private static func value(after flag: String, offset: Int = 1) -> String? {
         let arguments = CommandLine.arguments
-        func value(after flag: String, offset: Int = 1) -> String? {
-            guard let index = arguments.firstIndex(of: flag), index + offset < arguments.count else { return nil }
-            return arguments[index + offset]
+        guard let index = arguments.firstIndex(of: flag), index + offset < arguments.count else { return nil }
+        return arguments[index + offset]
+    }
+
+    private static func inspectEngineProject(_ path: String) {
+        let url = URL(filePath: (path as NSString).expandingTildeInPath)
+        do {
+            print(try EngineInspector.report(for: url))
+        } catch {
+            FileHandle.standardError.write(Data((error.localizedDescription + "\n").utf8))
         }
+    }
+
+    /// `--video <file>` (a video, or a .gif / .apng) and `--web <address, folder or .html>` set all screens; `--video-for` / `--web-for <display UUID> …`
+    /// set one screen; `--we <folder, project.json or .pkg>` and `--we-for <display UUID> …` do the same for a Wallpaper Engine project;
+    /// `--fps 30|60` sets the web frame rate.
+    private func applyCommandLine() {
+        func value(after flag: String, offset: Int = 1) -> String? { Self.value(after: flag, offset: offset) }
         if let fps = value(after: "--fps").flatMap(Int.init), fps == 30 || fps == 60 { model.webFrameRate = fps }
         if let path = value(after: "--video") { model.setSource(Self.video(path), forDisplay: nil) }
         if let target = value(after: "--web") { model.setSource(Self.web(target), forDisplay: nil) }
+        if let path = value(after: "--we") { model.setSource(Self.engine(path), forDisplay: nil) }
+        if let display = value(after: "--we-for"), let path = value(after: "--we-for", offset: 2) {
+            model.setSource(Self.engine(path), forDisplay: display)
+        }
         if let display = value(after: "--video-for"), let path = value(after: "--video-for", offset: 2) {
             model.setSource(Self.video(path), forDisplay: display)
         }
@@ -87,6 +110,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let url = URL(filePath: path)
         let kind = WallpaperSource.Kind.detect(path: url.path, isDirectory: false)
         return WallpaperSource(kind: kind == .gif ? .gif : .video, location: url.path, bookmark: try? url.bookmarkData())
+    }
+
+    private static func engine(_ path: String) -> WallpaperSource {
+        let url = URL(filePath: (path as NSString).expandingTildeInPath)
+        return WallpaperSource(kind: .wallpaperEngine, location: url.path, bookmark: try? url.bookmarkData())
     }
 
     /// An existing path is a local page; anything else is treated as a web address.

@@ -108,6 +108,7 @@ private struct LibraryView: View {
                     Button("Видео…") { pick(.video) }
                     Button("GIF…") { pick(.gif) }
                     Button("Веб-страница: папка или файл…") { pick(.webPage) }
+                    Button("Wallpaper Engine: папка, .pkg или project.json…") { pick(.engine) }
                     Button("Веб-страница по адресу…") { address = ""; addingAddress = true }
                 } label: {
                     Label("Добавить", systemImage: "plus")
@@ -177,8 +178,7 @@ private struct LibraryView: View {
     }
 
     private func addDropped(_ url: URL) async {
-        let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
-        let kind = WallpaperSource.Kind.detect(path: url.path, isDirectory: isDirectory)
+        let kind = WallpaperSource.Kind.detect(url: url)
         await model.addToLibrary(WallpaperSource(kind: kind, location: url.path, bookmark: try? url.bookmarkData()))
     }
 }
@@ -198,6 +198,7 @@ private struct Card: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                 HStack(spacing: 4) {
                     Badge(text: item.source.kind.badge)
+                    if item.source.engine == .scene { Badge(text: "сцена: пока превью") }
                     if isMissing { Badge(text: "Нет файла", warning: true) }
                 }
                 .padding(6)
@@ -282,12 +283,13 @@ private struct EmptyLibrary: View {
             Spacer()
             Image(systemName: "photo.on.rectangle.angled").font(.system(size: 44)).foregroundStyle(.secondary)
             Text("В библиотеке пока пусто").font(.title3.weight(.semibold))
-            Text("Добавьте видео, GIF, папку с веб-страницей или адрес. Файлы можно перетащить прямо в окно.")
+            Text("Добавьте видео, GIF, папку с веб-страницей, проект Wallpaper Engine или адрес. Файлы можно перетащить прямо в окно.")
                 .foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 360)
             HStack {
                 Button("Видео…") { pick(.video) }.buttonStyle(.borderedProminent)
                 Button("GIF…") { pick(.gif) }
                 Button("Веб-страница…") { pick(.webPage) }
+                Button("Wallpaper Engine…") { pick(.engine) }
                 Button("По адресу…", action: addAddress)
             }
             Spacer()
@@ -489,6 +491,7 @@ extension WallpaperSource.Kind {
         case .video: "Видео"
         case .gif: "GIF"
         case .web: "Веб"
+        case .wallpaperEngine: "WE"
         }
     }
 
@@ -497,6 +500,7 @@ extension WallpaperSource.Kind {
         case .video: "film"
         case .gif: "photo.stack"
         case .web: "globe"
+        case .wallpaperEngine: "square.stack.3d.up"
         }
     }
 }

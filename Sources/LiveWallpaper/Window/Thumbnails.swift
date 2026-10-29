@@ -4,7 +4,7 @@ import ImageIO
 import Observation
 import WallpaperCore
 
-/// Preview pictures for library cards: the first frame of a video, or a picture the page's folder ships
+/// Preview pictures for library cards: the first frame of a video, the `preview` of a Wallpaper Engine project, or a picture the page's folder ships
 /// (`preview.png`, `thumbnail.jpg`…). Everything else shows a placeholder. Kept in memory, by library item.
 @MainActor
 @Observable
@@ -28,6 +28,7 @@ final class Thumbnails {
         case .gif: image = Self.gifFrame(of: item.source.resolvedURL)
         case .video: image = await Self.frame(of: item.source.resolvedURL)
         case .web: image = item.source.isRemote ? nil : Self.pageImage(in: item.source.resolvedURL)
+        case .wallpaperEngine: image = await Self.engineImage(of: item.source)
         }
         if let image { images[item.id] = image }
     }
@@ -62,6 +63,14 @@ final class Thumbnails {
               ] as CFDictionary)
         else { return nil }
         return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+    }
+
+    /// The project's `preview` picture (the first frame of a GIF); a video project without one shows a video frame.
+    private static func engineImage(of source: WallpaperSource) async -> NSImage? {
+        guard let item = try? EngineSupport.open(source.resolvedURL) else { return nil }
+        if let preview = item.previewFile, let image = gifFrame(of: preview) { return image }
+        if item.type == .video, let video = item.mainFile { return await frame(of: video) }
+        return nil
     }
 
     private static func pageImage(in url: URL) -> NSImage? {

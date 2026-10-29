@@ -1,6 +1,6 @@
 import Foundation
 
-/// How a video fills its screen. A web page lays itself out in the window and ignores it.
+/// How a video fills its screen. A web page lays itself out in the window and ignores it. A Wallpaper Engine scene shows its preview picture, so it scales.
 public enum WallpaperScaling: String, Codable, CaseIterable, Sendable {
     /// Keeps proportions and covers the whole screen; what does not fit is cropped. The default.
     case fill
@@ -64,6 +64,6 @@ extension WallpaperAssignments {
     /// itself out in the window; with nothing chosen yet it does: the choice waits for a video.
     public func scalingApplies(forDisplay uuid: String?) -> Bool {
         let source = uuid.map { source(forDisplay: $0) } ?? shared
-        return source?.kind != .web
+        return source?.isPage != true
     }
 }

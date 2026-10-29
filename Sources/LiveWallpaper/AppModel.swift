@@ -3,6 +3,7 @@ import AVFoundation
 import Observation
 import UniformTypeIdentifiers
 import WallpaperCore
+import WallpaperEngineKit
 
 struct Notice: Identifiable {
     let id = UUID()
@@ -163,7 +164,7 @@ final class AppModel {
         controller.scalingFor = { [weak self] uuid in self?.scaling(forDisplay: uuid) ?? .fill }
         controller.onChange = { [weak self] in self?.refreshScreens() }
         controller.onShown = { [weak self] uuid, source in
-            guard let self, self.syncSystemWallpaper, source.kind != .web else { return }
+            guard let self, self.syncSystemWallpaper, !source.isPage else { return }
             self.applyFrame(of: source, toDisplay: uuid)
         }
         controller.onFailure = { [weak self] source, error in
@@ -208,16 +209,16 @@ final class AppModel {
     /// the library and puts it on the screen, or on all screens when `uuid` is nil.
     func setSource(_ source: WallpaperSource, forDisplay uuid: String?) {
         Task {
-            guard await accept(source) else { return }
-            apply(source, to: uuid.map(ApplyTarget.display) ?? .all)
+            guard let accepted = await accept(source) else { return }
+            apply(accepted, to: uuid.map(ApplyTarget.display) ?? .all)
         }
     }
 
     /// Adds to the library only (the window's «Добавить»); returns whether the source was accepted.
     @discardableResult
     func addToLibrary(_ source: WallpaperSource) async -> Bool {
-        guard await accept(source) else { return false }
-        library.add(source)
+        guard let accepted = await accept(source) else { return false }
+        addNamed(accepted)
         return true
     }
 
@@ -230,7 +231,7 @@ final class AppModel {
     }
 
     func apply(_ source: WallpaperSource, to target: ApplyTarget) {
-        library.add(source)
+        addNamed(source)
         assignments.apply(source, to: target)
     }
 
@@ -248,12 +249,29 @@ final class AppModel {
         return screens.filter { ids.contains($0.id) }.map(\.name)
     }
 
-    private func accept(_ source: WallpaperSource) async -> Bool {
+    /// The source as it goes into the library, or nil after telling the person why it cannot be shown. A Wallpaper
+    /// Engine project comes back as its folder with its type filled in.
+    private func accept(_ source: WallpaperSource) async -> WallpaperSource? {
+        var source = source
+        if source.kind == .wallpaperEngine {
+            do { source = try EngineSupport.prepare(source) } catch {
+                notice = Notice(title: "Это не подойдёт", text: error.localizedDescription)
+                return nil
+            }
+        }
         if let problem = await Self.problem(with: source) {
             notice = Notice(title: "Это не подойдёт", text: problem)
-            return false
+            return nil
         }
-        return true
+        return source
+    }
+
+    /// Puts the source in the library; a Wallpaper Engine project that is new there is named by its `title`.
+    private func addNamed(_ source: WallpaperSource) {
+        let item = library.add(source)
+        if source.kind == .wallpaperEngine, item.name == nil, let title = EngineSupport.title(of: source) {
+            library.rename(id: item.id, to: title)
+        }
     }
 
     func useShared(forDisplay uuid: String) {
@@ -291,6 +309,8 @@ final class AppModel {
             return VideoContent(url: source.resolvedURL, label: label)
         case .gif:
             return GifContent(url: source.resolvedURL, label: label)
+        case .wallpaperEngine:
+            return try EngineSupport.content(for: source, frameRate: webFrameRate, label: label)
         case .web where source.isRemote:
             guard let url = WebAddress.normalize(source.location) else { throw SourceError.badAddress }
             return WebContent(target: .remote(url), frameRate: webFrameRate, label: label)
@@ -342,14 +362,16 @@ final class AppModel {
 
     private func applyFramesToAllScreens() {
         for screen in screens {
-            guard let source = screen.source, source.kind != .web else { continue }
+            guard let source = screen.source, !source.isPage else { continue }
             applyFrame(of: source, toDisplay: screen.id)
         }
     }
 
     private func applyFrame(of source: WallpaperSource, toDisplay uuid: String) {
+        let url = source.kind == .wallpaperEngine ? EngineSupport.frameURL(of: source) : source.resolvedURL
+        guard let url else { return }
         Task {
-            await SystemWallpaper.applyFirstFrame(of: source.resolvedURL, toDisplay: uuid) { [weak self] in
+            await SystemWallpaper.applyFirstFrame(of: url, toDisplay: uuid) { [weak self] in
                 self?.scaling(forDisplay: uuid) ?? .fill
             }
             canRestoreWallpaper = SystemWallpaper.hasOriginals
@@ -366,16 +388,28 @@ final class AppModel {
         case .gif:
             do { _ = try AnimatedImageInfo.read(source.resolvedURL) } catch { return GifError(error).localizedDescription }
             return nil
-        case .video:
-            let asset = AVURLAsset(url: source.resolvedURL)
+        case .wallpaperEngine:
             do {
-                guard try await asset.load(.isPlayable) else { return "macOS не умеет воспроизводить этот файл." }
-                guard try await !asset.loadTracks(withMediaType: .video).isEmpty else { return VideoError.noVideoTrack.localizedDescription }
-            } catch {
-                return error.localizedDescription
-            }
-            return nil
+                let item = try EngineSupport.open(source.resolvedURL)
+                switch item.type {
+                case .video: return await videoProblem(item.mainFile!)
+                case .scene, .web: return nil
+                }
+            } catch { return error.localizedDescription }
+        case .video:
+            return await videoProblem(source.resolvedURL)
         }
+    }
+
+    private static func videoProblem(_ url: URL) async -> String? {
+        let asset = AVURLAsset(url: url)
+        do {
+            guard try await asset.load(.isPlayable) else { return "macOS не умеет воспроизводить этот файл." }
+            guard try await !asset.loadTracks(withMediaType: .video).isEmpty else { return VideoError.noVideoTrack.localizedDescription }
+        } catch {
+            return error.localizedDescription
+        }
+        return nil
     }
 }
 
