@@ -1,8 +1,8 @@
 # Live Wallpaper for macOS
 
 Live wallpapers for the Mac desktop: a looping video or a web page (HTML/CSS/JS, WebGL shaders) under the
-desktop icons. Menu bar app, no Dock icon. AppKit, AVFoundation and WebKit; SwiftUI for the menu only; no
-third-party dependencies. MIT license.
+desktop icons. A menu bar app with a main window (library, screens, settings); the Dock icon shows only while the window is
+open. AppKit, AVFoundation and WebKit; SwiftUI for the window and the menu; no third-party dependencies. MIT license.
 
 Full documentation (in Russian): [README-RU.md](README-RU.md).
 
@@ -33,7 +33,7 @@ The bundle is ad-hoc signed and not notarized.
 
 ## Scaling
 
-Menu → **Масштаб** (Scaling) sets how a video fits a screen whose proportions differ from the video's:
+Main window → Settings → **Масштаб** (Scaling; per screen: the Screens tab) sets how a video fits a screen whose proportions differ from the video's:
 
 | Mode | Video (`AVPlayerLayer.videoGravity`) | Desktop picture (`setDesktopImageURL`) |
 | --- | --- | --- |
