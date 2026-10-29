@@ -9,6 +9,10 @@ public enum SceneRendererPage {
     (() => {
       const post = (message) => { try { webkit.messageHandlers.scene.postMessage(message); } catch (e) {} };
       const status = { drawn: 0, unknownModes: [], failed: [], videos: 0, canvas: [0, 0], parallax: [0, 0] };
+      // Declared before the api and the early returns, so status() and the setters work even when the page failed to start.
+      let scene, textures = [], layers = [], videos = [], rect = [0, 0, 1, 1];
+      let modeMap = { 1: 1, 31: 2 };
+      let target = [0.5, 0.5], smooth = [0.5, 0.5], scaling = 'fill', layoutDirty = true, dirty = true;
       const api = window.__lwScene = {
         status: () => { status.videosPlaying = videos.filter((entry) => !entry.video.paused).length; return JSON.stringify(status); },
         setMouse(x, y) { target = [x, y]; },
@@ -18,8 +22,6 @@ public enum SceneRendererPage {
         setModeMap(map) { modeMap = map; dirty = true; if (scene) draw(); },
         step(seconds) { if (scene) advance(seconds); },
       };
-      let modeMap = { 1: 1, 31: 2 };
-      let target = [0.5, 0.5], smooth = [0.5, 0.5], scaling = 'fill', layoutDirty = true, dirty = true;
       const fail = (message) => { status.error = String(message); post({ type: 'error', message: String(message) }); };
       // Quality comes with the address (?q=economy|screen|maximum). Economy draws one canvas pixel per point and halves
       // pictures; economy and screen never keep a picture larger than the canvas (and never below 512 pixels);
@@ -70,8 +72,6 @@ public enum SceneRendererPage {
       gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
 
-      let scene, textures = [], layers = [], videos = [], rect = [0, 0, 1, 1];
-
       const makeTexture = () => {
         const texture = gl.createTexture();
         gl.bindTexture(gl.TEXTURE_2D, texture);
@@ -100,10 +100,10 @@ public enum SceneRendererPage {
               { resizeWidth: small[0], resizeHeight: small[1], resizeQuality: 'high', premultiplyAlpha: 'none' });
             bind();
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bitmap);
+            status.reduced.push({ url: info.url, w: bitmap.width, h: bitmap.height }); // what was made, not what was asked for
             bitmap.close();
             gl.generateMipmap(gl.TEXTURE_2D);
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-            status.reduced.push(info.url);
           } else {
             bind();
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, info.w, info.h, 0, gl.RGBA, gl.UNSIGNED_BYTE, bytes);
@@ -116,7 +116,7 @@ public enum SceneRendererPage {
           await image.decode();
           const small = reducedSize(image.naturalWidth, image.naturalHeight);
           const source = small ? await createImageBitmap(image, { resizeWidth: small[0], resizeHeight: small[1], resizeQuality: 'high', premultiplyAlpha: 'none' }) : image;
-          if (small) status.reduced.push(info.url);
+          if (small) status.reduced.push({ url: info.url, w: source.width, h: source.height });
           bind();
           gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
           if (small) source.close();

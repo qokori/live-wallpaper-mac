@@ -29,12 +29,18 @@ final class WebContent: NSObject, WallpaperContent, WKNavigationDelegate {
     private let target: Target
     private let label: String
     private let container = NSView()
-    private let snapshotView = NSImageView()
+    let snapshotView = NSImageView()
     private let webView: WKWebView
     private var ready: (@MainActor () -> Void)?
     private var failed: (@MainActor (Error) -> Void)?
+    private var started = false
     private var loaded = false
     private var stopped = false
+    /// While a scene reloads at a new quality: the quality to go back to if the page fails. Nil otherwise.
+    private var reloadingFrom: RenderQuality?
+    private var reloadGeneration = 0
+    /// The old page's picture covers the web view until the new page has drawn.
+    private var coveredByReload = false
     private var playing = false
     private var frameRate: Int
     private var quality: RenderQuality
@@ -48,7 +54,7 @@ final class WebContent: NSObject, WallpaperContent, WKNavigationDelegate {
     private let hasEngineShim: Bool
 
     init(
-        target: Target, frameRate: Int, quality: RenderQuality = .maximum, label: String, engineProperties: [EngineProject.Property]? = nil
+        target: Target, frameRate: Int, quality: RenderQuality = .standard, label: String, engineProperties: [EngineProject.Property]? = nil
     ) {
         self.target = target
         self.quality = quality
@@ -99,6 +105,7 @@ final class WebContent: NSObject, WallpaperContent, WKNavigationDelegate {
     func start(ready: @escaping @MainActor () -> Void, failed: @escaping @MainActor (Error) -> Void) {
         self.ready = ready
         self.failed = failed
+        started = true
         switch target {
         case .remote(let url):
             webView.load(URLRequest(url: url))
@@ -119,8 +126,11 @@ final class WebContent: NSObject, WallpaperContent, WKNavigationDelegate {
         if hasEngineShim { webView.evaluateJavaScript(EngineWebShim.setPaused(!playing)) }
         webView.setAllMediaPlaybackSuspended(!playing)
         if playing {
-            webView.isHidden = false
-            snapshotView.isHidden = true
+            // A reload in progress keeps its picture on screen until the new page draws.
+            if !coveredByReload {
+                webView.isHidden = false
+                snapshotView.isHidden = true
+            }
             captureSnapshot()
             return
         }
@@ -138,12 +148,55 @@ final class WebContent: NSObject, WallpaperContent, WKNavigationDelegate {
     }
 
     /// A scene is drawn again at the new quality (the page reads it when it loads); other pages have no use for it.
+    /// A page that was asked for already (still loading) is asked again. While the new page loads, the picture of
+    /// the old one stays on screen; if the new page fails, the old quality comes back.
     func setQuality(_ quality: RenderQuality) {
         guard quality != self.quality else { return }
+        let previous = self.quality
         self.quality = quality
-        guard isScene, loaded else { return }
+        guard isScene, started, !stopped else { return }
         Log.event("\(label): quality \(quality.rawValue), scene reloads")
-        webView.load(URLRequest(url: SceneSchemeHandler.entry(quality: quality)))
+        // If the page is already being replaced, the first rollback target stays.
+        reloadingFrom = reloadingFrom ?? previous
+        reloadGeneration += 1
+        let generation = reloadGeneration
+        let showing = loaded && !webView.isHidden
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let image = showing ? try? await webView.takeSnapshot(configuration: nil) : nil
+            guard generation == reloadGeneration, !stopped else { return }
+            if let image {
+                snapshotView.image = image
+                snapshotView.isHidden = false
+                webView.isHidden = true
+                coveredByReload = true
+            }
+            webView.load(URLRequest(url: SceneSchemeHandler.entry(quality: self.quality)))
+        }
+    }
+
+    /// The reloaded page has drawn: it takes the screen back from the picture of the old one.
+    private func reloadFinished() {
+        guard reloadingFrom != nil || coveredByReload else { return }
+        reloadingFrom = nil
+        guard coveredByReload else { return }
+        coveredByReload = false
+        if playing {
+            webView.isHidden = false
+            snapshotView.isHidden = true
+        }
+    }
+
+    /// The reloaded page failed: back to the quality that worked. A failure of that page too is only logged.
+    /// Returns whether the failure was handled here.
+    func reloadFailed(_ text: String) -> Bool {
+        guard let back = reloadingFrom, loaded, !stopped else { return false }
+        reloadingFrom = nil
+        Log.event("\(label): scene failed at quality \(quality.rawValue) (\(text)), back to \(back.rawValue)")
+        quality = back
+        webView.load(URLRequest(url: SceneSchemeHandler.entry(quality: back)))
+        reloadGeneration += 1
+        return true
     }
 
     func setFrameRate(_ frameRate: Int) {
@@ -159,6 +212,8 @@ final class WebContent: NSObject, WallpaperContent, WKNavigationDelegate {
     }
 
     var isPlaying: Bool { playing }
+    var currentQuality: RenderQuality { quality }
+    var currentFrameRate: Int { frameRate }
 
     // MARK: Scenes
 
@@ -207,10 +262,12 @@ final class WebContent: NSObject, WallpaperContent, WKNavigationDelegate {
                 if let text = result as? String { Log.event("\(label): scene \(text)") }
             }
             markReady()
+            reloadFinished()
             captureSnapshot()
         case "error":
             let text = message["message"] as? String ?? "?"
             Log.event("\(label): scene failed: \(text)")
+            if reloadFailed(text) { return }
             if !loaded, !stopped { failed?(SceneError.renderer(text)) }
         default:
             break
@@ -287,6 +344,7 @@ final class WebContent: NSObject, WallpaperContent, WKNavigationDelegate {
         let code = (error as NSError).code
         guard code != NSURLErrorCancelled else { return }
         Log.event("\(label): page failed: \(error.localizedDescription)")
+        if reloadFailed(error.localizedDescription) { return }
         if !loaded, !stopped { failed?(error) }
     }
 }

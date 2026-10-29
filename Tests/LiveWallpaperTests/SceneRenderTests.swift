@@ -262,64 +262,100 @@ func near(_ a: [Int], _ b: [Int], tolerance: Int = 6) -> Bool {
         #expect(marker == "same page", "сцена не должна загружаться заново")
     }
 
-    private func bigPictureScene(_ dir: URL) throws {
-        // A 1024x1024 picture: larger than the 512-pixel floor under which the canvas never limits a picture.
-        var bytes = [UInt8](repeating: 0, count: 1024 * 1024 * 4)
-        for i in 0..<(1024 * 1024) { bytes[i * 4] = 255; bytes[i * 4 + 3] = 255 }
-        _ = try EngineFixtures.scene(in: dir, layers: [.init(name: "красный", texture: EngineFixtures.tex(width: 1024, height: 1024, bytes: bytes))])
+    /// A picture of `side` pixels: red top left, green top right, blue bottom left, white bottom right.
+    private func quadrantScene(_ dir: URL, side: Int = 1024) throws {
+        var bytes = [UInt8](repeating: 255, count: side * side * 4)
+        for y in 0..<side {
+            for x in 0..<side {
+                let o = (y * side + x) * 4
+                let right = x >= side / 2, bottom = y >= side / 2
+                (bytes[o], bytes[o + 1], bytes[o + 2]) = switch (right, bottom) {
+                case (false, false): (255, 0, 0)
+                case (true, false): (0, 255, 0)
+                case (false, true): (0, 0, 255)
+                case (true, true): (255, 255, 255)
+                }
+            }
+        }
+        _ = try EngineFixtures.scene(in: dir, layers: [.init(name: "четверти", texture: EngineFixtures.tex(width: side, height: side, bytes: bytes))])
+    }
+
+    /// The sizes of the bitmaps the page made, by what `status.reduced` says.
+    private func reducedSizes(_ status: [String: Any]) -> [[Int]] {
+        (status["reduced"] as? [[String: Any]] ?? []).map { [$0["w"] as? Int ?? 0, $0["h"] as? Int ?? 0] }
     }
 
     @Test func economyHalvesPicturesAndMaximumLeavesThem() async throws {
         let dir = folder()
         defer { try? FileManager.default.removeItem(at: dir) }
-        try bigPictureScene(dir)
-        let economy = try SceneProbe(folder: dir, quality: .economy)
-        defer { economy.close() }
-        try await economy.load()
-        var status = try await economy.status()
-        #expect(status["quality"] as? String == "economy")
-        #expect((status["reduced"] as? [String])?.count == 1, "\(status)")
-        // The picture is still the same red.
-        #expect(near(try await economy.snapshot().at(0.5, 0.5), [255, 0, 0], tolerance: 12))
+        try quadrantScene(dir)
         let maximum = try SceneProbe(folder: dir, quality: .maximum)
         defer { maximum.close() }
         try await maximum.load()
-        status = try await maximum.status()
-        #expect((status["reduced"] as? [String]) == [])
-        #expect(near(try await maximum.snapshot().at(0.5, 0.5), [255, 0, 0], tolerance: 12))
+        #expect(reducedSizes(try await maximum.status()).isEmpty)
+        let full = try await maximum.snapshot()
+        let economy = try SceneProbe(folder: dir, quality: .economy)
+        defer { economy.close() }
+        try await economy.load()
+        let status = try await economy.status()
+        #expect(status["quality"] as? String == "economy")
+        // The bitmap that went to the graphics card is 512x512 (half of 1024, which is also the 512-pixel floor).
+        #expect(reducedSizes(status) == [[512, 512]], "\(status)")
+        // The reduced picture shows the same quarters in the same places (a flipped or shifted one would not).
+        let small = try await economy.snapshot()
+        for (x, y) in [(0.25, 0.25), (0.75, 0.25), (0.25, 0.75), (0.75, 0.75)] {
+            #expect(near(small.at(x, y), full.at(x, y), tolerance: 20), "\(x),\(y): \(small.at(x, y)) вместо \(full.at(x, y))")
+        }
+        #expect(near(full.at(0.25, 0.25), [255, 0, 0], tolerance: 20) && near(full.at(0.75, 0.75), [255, 255, 255], tolerance: 20))
     }
 
-    @Test func screenQualityLimitsAPictureToTheCanvasAndNeverTouchesVideo() async throws {
+    /// The limits worked out by the page, read from the bitmaps it made (800 pixels: the 200x120 canvas is under the 512 floor).
+    @Test func eachLevelReducesPicturesToItsLimit() async throws {
         let dir = folder()
         defer { try? FileManager.default.removeItem(at: dir) }
-        try bigPictureScene(dir)
-        // The 200x120 window is smaller than the 512-pixel floor: the picture goes down to the floor.
-        let screen = try SceneProbe(folder: dir, quality: .screen)
-        defer { screen.close() }
-        try await screen.load()
-        #expect((try await screen.status()["reduced"] as? [String])?.count == 1)
-        #expect(near(try await screen.snapshot().at(0.5, 0.5), [255, 0, 0], tolerance: 12))
+        try quadrantScene(dir, side: 800)
+        var made: [RenderQuality: [[Int]]] = [:]
+        for quality in RenderQuality.allCases {
+            let probe = try SceneProbe(folder: dir, quality: quality)
+            defer { probe.close() }
+            try await probe.load()
+            made[quality] = reducedSizes(try await probe.status())
+        }
+        #expect(made[.economy] == [[400, 400]], "половина, она меньше предела 512")
+        #expect(made[.screen] == [[512, 512]], "до предела 512: холст меньше")
+        #expect(made[.maximum] == [])
+        // Pictures of 64 pixels or less are never reduced.
+        let tiny = folder()
+        defer { try? FileManager.default.removeItem(at: tiny) }
+        try quadrantScene(tiny, side: 64)
+        let probe = try SceneProbe(folder: tiny, quality: .economy)
+        defer { probe.close() }
+        try await probe.load()
+        #expect(reducedSizes(try await probe.status()).isEmpty)
+    }
 
+    @Test func screenQualityNeverTouchesVideo() async throws {
+        // A video larger than the 512-pixel floor: if it went through the picture limit, it would show up in `reduced`.
         let video = folder()
         defer { try? FileManager.default.removeItem(at: video) }
         try FileManager.default.createDirectory(at: video, withIntermediateDirectories: true)
         let mp4 = video.appending(path: "clip.mp4")
-        try await TestVideo.write(mp4, fill: 255)
+        try await TestVideo.write(mp4, fill: 255, width: 640, height: 480)
         _ = try EngineFixtures.scene(in: video, layers: [
-            .init(name: "видео", texture: EngineFixtures.tex(width: 64, height: 48, bytes: [UInt8](try Data(contentsOf: mp4)), flags: 35)),
+            .init(name: "видео", texture: EngineFixtures.tex(width: 640, height: 480, bytes: [UInt8](try Data(contentsOf: mp4)), flags: 35)),
         ])
         let clip = try SceneProbe(folder: video, size: CGSize(width: 16, height: 12), quality: .economy)
         defer { clip.close() }
         try await clip.load()
         let status = try await clip.status()
-        #expect((status["reduced"] as? [String]) == [], "видео не уменьшается: \(status)")
+        #expect(reducedSizes(status).isEmpty && status["videos"] as? Int == 1, "видео не уменьшается: \(status)")
         #expect(near(try await clip.snapshot().at(0.5, 0.5), [255, 255, 255], tolerance: 30))
     }
 
-    @Test func changingTheQualityReloadsTheScenePage() async throws {
+    @Test func changingTheQualityReloadsTheScenePageAndHidesTheOldPictureWhenItIsDrawn() async throws {
         let dir = folder()
         defer { try? FileManager.default.removeItem(at: dir) }
-        try bigPictureScene(dir)
+        try quadrantScene(dir)
         let probe = try SceneProbe(folder: dir, quality: .maximum)
         defer { probe.close() }
         try await probe.load()
@@ -328,8 +364,44 @@ func near(_ a: [Int], _ b: [Int], tolerance: Int = 6) -> Bool {
         for _ in 0..<100 {
             try await Task.sleep(for: .milliseconds(100))
             status = (try? await probe.status()) ?? [:]
-            if status["quality"] as? String == "economy", (status["reduced"] as? [String])?.isEmpty == false { break }
+            if status["quality"] as? String == "economy", !reducedSizes(status).isEmpty { break }
         }
-        #expect(status["quality"] as? String == "economy" && (status["reduced"] as? [String])?.count == 1, "\(status)")
+        #expect(status["quality"] as? String == "economy" && reducedSizes(status) == [[512, 512]], "\(status)")
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(probe.web.snapshotView.isHidden && !probe.webView.isHidden, "после перерисовки снимок старой картинки убран")
+    }
+
+    /// A quality asked for while the first page is still loading is not lost.
+    @Test func aQualityAskedForWhileTheFirstPageLoadsIsUsed() async throws {
+        let dir = folder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try quadrantScene(dir)
+        let probe = try SceneProbe(folder: dir, quality: .maximum)
+        defer { probe.close() }
+        var ready = false
+        probe.web.start(ready: { ready = true }, failed: { _ in })
+        probe.web.setQuality(.economy)
+        for _ in 0..<200 where !ready { try await Task.sleep(for: .milliseconds(50)) }
+        try await Task.sleep(for: .milliseconds(500))
+        let status = try await probe.status()
+        #expect(status["quality"] as? String == "economy" && reducedSizes(status) == [[512, 512]], "\(status)")
+    }
+
+    /// A reloaded page that fails gives the screen the quality that worked.
+    @Test func aFailedQualityReloadGoesBackToTheOldQuality() async throws {
+        let dir = folder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try quadrantScene(dir)
+        let probe = try SceneProbe(folder: dir, quality: .maximum)
+        defer { probe.close() }
+        try await probe.load()
+        probe.web.setQuality(.economy)
+        #expect(probe.web.reloadFailed("тест"))
+        #expect(probe.web.currentQuality == .maximum)
+        #expect(!probe.web.reloadFailed("ещё раз"), "откат один: вторая ошибка не по кругу")
+        try await Task.sleep(for: .milliseconds(1500))
+        let status = try await probe.status()
+        #expect(status["quality"] as? String == "maximum" && reducedSizes(status).isEmpty, "\(status)")
+        #expect(!probe.webView.isHidden)
     }
 }
