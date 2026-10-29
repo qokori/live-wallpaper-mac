@@ -67,7 +67,7 @@ still ad-hoc signed and not notarized. Read the script first if you like: [scrip
   keeps only the frame on screen and the next one, and one bigger than the screen is decoded at screen size. No sound.
   Add it like a video: Library → Add → GIF…, drag the file into the window, or `--video clip.gif` on the command line
   (`--video` and `--video-for` take a `.gif` / `.apng` / `.png` (an APNG usually keeps the .png name; a still .png is refused) as well as a video). A GIF needs more than one frame.
-- Web page from an http(s) address, a folder with `index.html` or an `.html` file; 30 or 60 fps cap; optional
+- Web page from an http(s) address, a folder with `index.html` or an `.html` file; 15, 30 or 60 fps cap (also for Wallpaper Engine scenes, which have a quality setting too: economy, to the screen, maximum); optional
   interactive mode that forwards pointer moves and clicks on the bare desktop to the page while the Finder icons
   keep working.
 - Wallpaper Engine projects (a Workshop folder copied to the Mac, a scene `.pkg` or a `project.json`): `video` projects play

@@ -1,9 +1,10 @@
-/// How much a scene may spend: its frame rate and how large its pictures and video are drawn. The settings offer
-/// three levels; `maximum` is how scenes were drawn before the setting existed.
+/// How much a scene may spend: its frame rate and how large its canvas and pictures are. The settings offer three
+/// levels; `maximum` is how scenes were drawn before the setting existed. Video layers are not reduced at any level:
+/// measured, shrinking them in the page costs more processor time than it saves.
 public enum RenderQuality: String, CaseIterable, Sendable {
-    /// One canvas pixel per point (half the pixels on a Retina screen), pictures at half size, video no larger than the canvas.
+    /// One canvas pixel per point (half the pixels on a Retina screen), pictures at half size and no larger than the canvas.
     case economy
-    /// A canvas pixel per screen pixel, pictures as they are, video no larger than the canvas.
+    /// A canvas pixel per screen pixel, pictures no larger than the canvas.
     case screen
     /// Everything at its own size.
     case maximum
@@ -31,9 +32,15 @@ public enum RenderQuality: String, CaseIterable, Sendable {
         }
     }
 
-    /// Scale a picture is reduced to before it goes to the graphics card (1 keeps it).
-    public var pictureScale: Double { self == .economy ? 0.5 : 1 }
+    /// Pictures of this many pixels or fewer on a side, and any picture on a canvas smaller than `floor`, are not reduced.
+    public static let smallestPicture = 64.0
+    public static let canvasFloor = 512.0
 
-    /// Whether video larger than the canvas is reduced to the canvas size.
-    public var shrinksVideo: Bool { self != .maximum }
+    /// The factor a picture's sides are multiplied by before it goes to the graphics card (1 keeps it). The page
+    /// does the same sum (`reducedSize` in `SceneRendererPage`).
+    public func pictureScale(side: Double, canvasSide: Double) -> Double {
+        guard self != .maximum, side > Self.smallestPicture else { return 1 }
+        let limit = max(Self.canvasFloor, canvasSide)
+        return min(self == .economy ? 0.5 : 1, limit / side)
+    }
 }

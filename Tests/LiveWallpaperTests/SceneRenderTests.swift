@@ -263,10 +263,10 @@ func near(_ a: [Int], _ b: [Int], tolerance: Int = 6) -> Bool {
     }
 
     private func bigPictureScene(_ dir: URL) throws {
-        // A 128x128 picture: larger than the 64-pixel limit under which pictures are never reduced.
-        var bytes = [UInt8](repeating: 0, count: 128 * 128 * 4)
-        for i in 0..<(128 * 128) { bytes[i * 4] = 255; bytes[i * 4 + 3] = 255 }
-        _ = try EngineFixtures.scene(in: dir, layers: [.init(name: "красный", texture: EngineFixtures.tex(width: 128, height: 128, bytes: bytes))])
+        // A 1024x1024 picture: larger than the 512-pixel floor under which the canvas never limits a picture.
+        var bytes = [UInt8](repeating: 0, count: 1024 * 1024 * 4)
+        for i in 0..<(1024 * 1024) { bytes[i * 4] = 255; bytes[i * 4 + 3] = 255 }
+        _ = try EngineFixtures.scene(in: dir, layers: [.init(name: "красный", texture: EngineFixtures.tex(width: 1024, height: 1024, bytes: bytes))])
     }
 
     @Test func economyHalvesPicturesAndMaximumLeavesThem() async throws {
@@ -289,27 +289,31 @@ func near(_ a: [Int], _ b: [Int], tolerance: Int = 6) -> Bool {
         #expect(near(try await maximum.snapshot().at(0.5, 0.5), [255, 0, 0], tolerance: 12))
     }
 
-    @Test func screenQualityKeepsPicturesButShrinksVideoLargerThanTheCanvas() async throws {
+    @Test func screenQualityLimitsAPictureToTheCanvasAndNeverTouchesVideo() async throws {
         let dir = folder()
         defer { try? FileManager.default.removeItem(at: dir) }
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let mp4 = dir.appending(path: "clip.mp4")
+        try bigPictureScene(dir)
+        // The 200x120 window is smaller than the 512-pixel floor: the picture goes down to the floor.
+        let screen = try SceneProbe(folder: dir, quality: .screen)
+        defer { screen.close() }
+        try await screen.load()
+        #expect((try await screen.status()["reduced"] as? [String])?.count == 1)
+        #expect(near(try await screen.snapshot().at(0.5, 0.5), [255, 0, 0], tolerance: 12))
+
+        let video = folder()
+        defer { try? FileManager.default.removeItem(at: video) }
+        try FileManager.default.createDirectory(at: video, withIntermediateDirectories: true)
+        let mp4 = video.appending(path: "clip.mp4")
         try await TestVideo.write(mp4, fill: 255)
-        _ = try EngineFixtures.scene(in: dir, layers: [
+        _ = try EngineFixtures.scene(in: video, layers: [
             .init(name: "видео", texture: EngineFixtures.tex(width: 64, height: 48, bytes: [UInt8](try Data(contentsOf: mp4)), flags: 35)),
         ])
-        // A tiny window: its canvas is smaller than the 64x48 clip.
-        let small = try SceneProbe(folder: dir, size: CGSize(width: 16, height: 12), quality: .screen)
-        defer { small.close() }
-        try await small.load()
-        let status = try await small.status()
-        let reduced = try #require(status["reduced"] as? [String])
-        #expect(reduced.count == 1 && reduced[0].contains("x"), "\(status)")
-        #expect(near(try await small.snapshot().at(0.5, 0.5), [255, 255, 255], tolerance: 30))
-        let full = try SceneProbe(folder: dir, size: CGSize(width: 16, height: 12), quality: .maximum)
-        defer { full.close() }
-        try await full.load()
-        #expect((try await full.status()["reduced"] as? [String]) == [])
+        let clip = try SceneProbe(folder: video, size: CGSize(width: 16, height: 12), quality: .economy)
+        defer { clip.close() }
+        try await clip.load()
+        let status = try await clip.status()
+        #expect((status["reduced"] as? [String]) == [], "видео не уменьшается: \(status)")
+        #expect(near(try await clip.snapshot().at(0.5, 0.5), [255, 255, 255], tolerance: 30))
     }
 
     @Test func changingTheQualityReloadsTheScenePage() async throws {

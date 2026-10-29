@@ -2,6 +2,7 @@ import AppKit
 import Darwin
 import Foundation
 import Testing
+import WallpaperCore
 import WallpaperEngineKit
 import WebKit
 @testable import LiveWallpaper
@@ -28,6 +29,9 @@ import WebKit
         }
     }
 
+    /// The GPU process of this test process: new after the first scene loads, then reused by the next ones.
+    private static var knownGPU: Set<Int32> = []
+
     private static var enabled: Bool {
         ProcessInfo.processInfo.environment["LW_WE_MEASURE"] == "1"
     }
@@ -48,6 +52,12 @@ import WebKit
         })
     }
 
+    private func gpuProcesses(before: Set<Int32>) -> Set<Int32> {
+        let fresh = pids(named: "com.apple.WebKit.GPU").subtracting(before)
+        if !fresh.isEmpty { Self.knownGPU = fresh }
+        return Self.knownGPU
+    }
+
     private struct Sample {
         var seconds: Double
         var cpu: [String: Double]
@@ -55,9 +65,9 @@ import WebKit
     }
 
     /// Samples the named processes for `seconds`, after a warm-up, calling `tick` 30 times a second.
-    private func measure(_ processes: @escaping () -> [String: Int32], warmup: Double = 6, seconds: Double = 20, tick: @escaping @MainActor @Sendable () -> Void) async -> Sample {
+    private func measure(_ processes: @escaping () -> [String: Int32], warmup: Double = 6, seconds: Double = 20, hz: Double = 30, tick: @escaping @MainActor @Sendable () -> Void) async -> Sample {
         let start = Date()
-        var timer: Timer? = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { _ in MainActor.assumeIsolated { tick() } }
+        var timer: Timer? = Timer.scheduledTimer(withTimeInterval: 1.0 / hz, repeats: true) { _ in MainActor.assumeIsolated { tick() } }
         try? await Task.sleep(for: .seconds(warmup))
         let before = processes().compactMapValues { Usage.of($0) }
         let t0 = Date()
@@ -146,7 +156,7 @@ import WebKit
         defer { probe.close() }
         try await probe.load()
         let webPid = try #require(probe.webView.value(forKey: "_webProcessIdentifier") as? Int32)
-        let gpuPids = pids(named: "com.apple.WebKit.GPU").subtracting(gpuBefore)
+        let gpuPids = gpuProcesses(before: gpuBefore)
         let appPid = getpid()
         let processes: () -> [String: Int32] = {
             var map: [String: Int32] = ["WebContent": webPid, "приложение": appPid]
@@ -166,5 +176,37 @@ import WebKit
             probe.webView.evaluateJavaScript("window.__lwScene.step(1/30)")
         }
         describe("сцена снова играет", resumed)
+    }
+
+    /// The same scene at each quality and frame rate of the settings. The loop is driven by hand at the chosen rate
+    /// (an unseen window gets no animation frames), so frame rate shows as the number of draws per second.
+    @Test func sceneByQualityAndFrameRate() async throws {
+        // LW_WE_SCENE names a folder of the samples; without it the scene with video layers is used.
+        let named = ProcessInfo.processInfo.environment["LW_WE_SCENE"].flatMap { name in SampleScenes.samples?.appending(path: name) }
+        guard Self.enabled, let folder = named ?? SampleScenes.videoScene else { return }
+        if let assets = try? EngineSupport.sceneAssets(try EngineSupport.open(folder)) {
+            print("MEASURE текстуры: " + assets.textures.map { "\($0.kind) \($0.width)×\($0.height)" }.joined(separator: ", "))
+        }
+        let cases: [(RenderQuality, Int)] = ProcessInfo.processInfo.environment["LW_WE_CASES"].map { text in text.split(separator: ",").compactMap { pair in let p = pair.split(separator: ":"); return p.count == 2 ? (RenderQuality(rawValue: String(p[0])), Int(p[1])) as? (RenderQuality, Int) : nil } } ?? [(.maximum, 30), (.screen, 30), (.economy, 30), (.screen, 15), (.screen, 60)]
+        for (quality, fps) in cases {
+            let gpuBefore = pids(named: "com.apple.WebKit.GPU")
+            let probe = try SceneProbe(folder: folder, size: CGSize(width: 1920, height: 1080), frameRate: fps, quality: quality)
+            try await probe.load()
+            let webPid = try #require(probe.webView.value(forKey: "_webProcessIdentifier") as? Int32)
+            let gpuPids = gpuProcesses(before: gpuBefore)
+            let appPid = getpid()
+            let sample = await measure({
+                var map: [String: Int32] = ["WebContent": webPid, "приложение": appPid]
+                for pid in gpuPids { map["GPU \(pid)"] = pid }
+                return map
+            }, warmup: 6, seconds: 15, hz: Double(fps)) {
+                probe.webView.evaluateJavaScript("window.__lwScene.step(1/\(fps))")
+            }
+            describe("сцена, качество \(quality.rawValue), \(fps) к/с", sample)
+            let status = try await probe.status()
+            print("MEASURE canvas \(status["canvas"] ?? "?"), уменьшено \(status["reduced"] ?? "?")")
+            probe.close()
+            try await Task.sleep(for: .seconds(2))
+        }
     }
 }

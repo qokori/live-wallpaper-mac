@@ -21,12 +21,11 @@ public enum SceneRendererPage {
       let modeMap = { 1: 1, 31: 2 };
       let target = [0.5, 0.5], smooth = [0.5, 0.5], scaling = 'fill', layoutDirty = true, dirty = true;
       const fail = (message) => { status.error = String(message); post({ type: 'error', message: String(message) }); };
-      // Quality comes with the address (?q=economy|screen|maximum): economy halves pictures and draws one canvas pixel
-      // per point, screen and maximum draw one per screen pixel; video larger than the canvas is reduced unless maximum.
+      // Quality comes with the address (?q=economy|screen|maximum). Economy draws one canvas pixel per point and halves
+      // pictures; economy and screen never keep a picture larger than the canvas (and never below 512 pixels);
+      // maximum reduces nothing. Video is not reduced: shrinking it through a canvas costs more than it saves.
       const quality = new URLSearchParams(location.search).get('q') || 'maximum';
       status.quality = quality; status.reduced = [];
-      const pictureScale = quality === 'economy' ? 0.5 : 1;
-      const shrinksVideo = quality !== 'maximum';
       const gl = document.getElementById('c').getContext('webgl2', { alpha: false, antialias: false, depth: false, stencil: false, powerPreference: 'low-power' });
       if (!gl) { fail('WebGL2 недоступен'); return; }
       const canvas = gl.canvas;
@@ -81,8 +80,13 @@ public enum SceneRendererPage {
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
         return texture;
       };
-      // The size a picture is reduced to in economy mode (pictures of 64 pixels or less are left alone).
-      const reducedSize = (w, h) => (pictureScale < 1 && Math.max(w, h) > 64) ? [Math.max(1, Math.round(w * pictureScale)), Math.max(1, Math.round(h * pictureScale))] : null;
+      // The size a picture is reduced to (null: as it is). Pictures of 64 pixels or less are left alone.
+      const reducedSize = (w, h) => {
+        if (quality === 'maximum' || Math.max(w, h) <= 64) return null;
+        const limit = Math.max(512, canvas.width, canvas.height);
+        const f = Math.min(quality === 'economy' ? 0.5 : 1, limit / Math.max(w, h));
+        return f < 1 ? [Math.max(1, Math.round(w * f)), Math.max(1, Math.round(h * f))] : null;
+      };
       const loadTexture = async (info) => {
         const texture = makeTexture();
         const result = { texture, info, ok: false };
@@ -143,17 +147,6 @@ public enum SceneRendererPage {
           bind();
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
           result.video = video; result.time = -1;
-          if (shrinksVideo && video.videoWidth > 0) {
-            // Video larger than the drawing canvas goes to the card at the canvas size.
-            const limit = Math.max(canvas.width, canvas.height);
-            const f = Math.min(1, limit / Math.max(video.videoWidth, video.videoHeight));
-            if (f < 1) {
-              const reduced = document.createElement('canvas');
-              reduced.width = Math.max(1, Math.round(video.videoWidth * f)); reduced.height = Math.max(1, Math.round(video.videoHeight * f));
-              result.reduced = reduced; result.reducedContext = reduced.getContext('2d', { alpha: false });
-              status.reduced.push(info.url + ' ' + reduced.width + 'x' + reduced.height);
-            }
-          }
           status.muted = video.muted;
           videos.push(result);
           status.videos += 1;
@@ -168,12 +161,7 @@ public enum SceneRendererPage {
           if (video.readyState < 2 || video.currentTime === entry.time) continue;
           entry.time = video.currentTime;
           gl.bindTexture(gl.TEXTURE_2D, entry.texture);
-          if (entry.reduced) {
-            entry.reducedContext.drawImage(video, 0, 0, entry.reduced.width, entry.reduced.height);
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, entry.reduced);
-          } else {
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
-          }
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
           entry.uploaded = gl.getError() === gl.NO_ERROR;
           status.uploads = (status.uploads || 0) + 1; status.uploaded = entry.uploaded;
           status.videoState = [video.readyState, video.videoWidth, video.videoHeight, video.currentTime, video.paused];
