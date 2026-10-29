@@ -22,9 +22,12 @@ if [ ! -x "$VENV/bin/dmgbuild" ]; then
     "$VENV/bin/pip" install --quiet "dmgbuild==$DMGBUILD_VERSION"
 fi
 
-swift "$ROOT/scripts/dmg-background.swift" background "$WORK"
+# A program of two files needs its entry point to be called main.swift; Logo.swift is the one drawing of the logo.
+cp "$ROOT/scripts/dmg-background.swift" "$WORK/main.swift"
+swiftc -O -o "$WORK/dmg-background" "$WORK/main.swift" "$ROOT/Sources/LiveWallpaper/Logo.swift"
+"$WORK/dmg-background" background "$WORK"
 tiffutil -cathidpicheck "$WORK/background.png" "$WORK/background@2x.png" -out "$WORK/background.tiff" 2>/dev/null
-LAYOUT="$(swift "$ROOT/scripts/dmg-background.swift" layout)"
+LAYOUT="$("$WORK/dmg-background" layout)"
 
 rm -f "$OUT"
 mkdir -p "$(dirname "$OUT")"

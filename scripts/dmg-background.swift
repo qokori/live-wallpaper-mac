@@ -1,9 +1,10 @@
-// Draws the background of the installer window and a preview of the finished window. Offscreen only: bitmaps, no
+// Draws the background of the installer window (the logo's drawing comes from Sources/LiveWallpaper/Logo.swift, compiled
+// together; scripts/make-dmg.sh builds it) and a preview of the finished window. Offscreen only: bitmaps, no
 // window, no Finder. The layout below is the single source; scripts/make-dmg.sh reads it with `layout`.
 //
-//   swift scripts/dmg-background.swift layout                       prints: width height appX appY applicationsX applicationsY
-//   swift scripts/dmg-background.swift background <dir>             writes background.png and background@2x.png
-//   swift scripts/dmg-background.swift preview <AppIcon.icns> <out.png>   the window as Finder will draw it, at @2x
+//   dmg-background layout                       prints: width height appX appY applicationsX applicationsY
+//   dmg-background background <dir>             writes background.png and background@2x.png
+//   dmg-background preview <AppIcon.icns> <out.png>   the window as Finder will draw it, at @2x
 import AppKit
 
 // Points, origin at the top left of the window content; icon centers, as Finder stores them.
@@ -31,7 +32,7 @@ func canvas(scale: Int, _ draw: (CGContext) -> Void) -> NSBitmapImageRep {
     return rep
 }
 
-func text(_ string: String, size: CGFloat, weight: NSFont.Weight, alpha: CGFloat, at center: CGPoint, color: NSColor = .white) {
+func text(_ string: String, size: CGFloat, weight: NSFont.Weight, alpha: CGFloat, at center: CGPoint, color: NSColor = .black) {
     let style = NSMutableParagraphStyle()
     style.alignment = .center
     let attributes: [NSAttributedString.Key: Any] = [
@@ -44,52 +45,28 @@ func text(_ string: String, size: CGFloat, weight: NSFont.Weight, alpha: CGFloat
     line.draw(in: CGRect(x: center.x - CGFloat(width) / 2, y: center.y - box.height / 2, width: CGFloat(width), height: box.height))
 }
 
+/// White page, the logo's black wavy stripes: the mark on top, a black arrow.
 func drawBackground(_ context: CGContext) {
-    let space = CGColorSpaceCreateDeviceRGB()
-    let full = CGRect(x: 0, y: 0, width: width, height: height)
-    // Mid-tone on purpose: Finder draws the icon names in black or white by the system theme, and both read on it.
-    let base = CGGradient(colorsSpace: space, colors: [
-        CGColor(red: 0.26, green: 0.37, blue: 0.86, alpha: 1), CGColor(red: 0.52, green: 0.29, blue: 0.80, alpha: 1),
-    ] as CFArray, locations: [0, 1])!
-    context.drawLinearGradient(base, start: CGPoint(x: 0, y: 0), end: CGPoint(x: CGFloat(width), y: CGFloat(height)), options: [])
+    context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
 
-    func glow(_ center: CGPoint, radius: CGFloat, alpha: CGFloat) {
-        let gradient = CGGradient(colorsSpace: space, colors: [
-            CGColor(red: 1, green: 1, blue: 1, alpha: alpha), CGColor(red: 1, green: 1, blue: 1, alpha: 0),
-        ] as CFArray, locations: [0, 1])!
-        context.drawRadialGradient(gradient, startCenter: center, startRadius: 0, endCenter: center, endRadius: radius, options: [])
+    // The logo (the same drawing as the menu bar mark and the icon), flipped back: the canvas has a top-left origin.
+    func mark(size: CGFloat, center: CGPoint, alpha: CGFloat, stripes: Int) {
+        context.saveGState()
+        context.translateBy(x: center.x, y: center.y + size / 2)
+        context.scaleBy(x: 1, y: -1)
+        Logo.template(size: size, playing: true, stripes: stripes)
+            .draw(in: CGRect(x: -size / 2, y: 0, width: size, height: size), from: .zero, operation: .sourceOver, fraction: alpha)
+        context.restoreGState()
     }
-    glow(CGPoint(x: 120, y: 30), radius: 380, alpha: 0.30)
-    glow(CGPoint(x: 330, y: 205), radius: 150, alpha: 0.16)
-    glow(CGPoint(x: 600, y: 420), radius: 300, alpha: 0.18)
-
-    // Soft waves along the bottom: a wallpaper that moves.
-    context.saveGState()
-    context.clip(to: full)
-    for (index, amplitude) in [14.0, 10.0, 7.0].enumerated() {
-        let wave = CGMutablePath()
-        let base = CGFloat(height) - 26 - CGFloat(index) * 16
-        wave.move(to: CGPoint(x: -4, y: base))
-        var x = -4.0
-        while x <= Double(width) + 4 {
-            wave.addLine(to: CGPoint(x: x, y: base + CGFloat(sin(x / 58 + Double(index) * 1.7) * amplitude)))
-            x += 4
-        }
-        context.addPath(wave)
-        context.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.10 - CGFloat(index) * 0.02))
-        context.setLineWidth(2)
-        context.strokePath()
-    }
-    context.restoreGState()
+    mark(size: 64, center: CGPoint(x: CGFloat(width) / 2, y: 52), alpha: 1, stripes: 6)
 
     // The arrow from the app to the Applications folder.
     let y = appCenter.y
     let start = appCenter.x + iconSize / 2 + 16
     let end = applicationsCenter.x - iconSize / 2 - 16
-    context.saveGState()
-    context.setShadow(offset: CGSize(width: 0, height: 2), blur: 8, color: CGColor(red: 0.1, green: 0.05, blue: 0.4, alpha: 0.5))
-    context.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.92))
-    context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.92))
+    context.setStrokeColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+    context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
     context.setLineWidth(6)
     context.setLineCap(.round)
     context.move(to: CGPoint(x: start, y: y))
@@ -100,16 +77,14 @@ func drawBackground(_ context: CGContext) {
     context.addLine(to: CGPoint(x: end - 22, y: y + 16))
     context.closePath()
     context.fillPath()
-    context.restoreGState()
 
-    text("Live Wallpaper", size: 30, weight: .bold, alpha: 1, at: CGPoint(x: CGFloat(width) / 2, y: 50))
-    text("Живые обои для Mac  ·  Live wallpapers for Mac", size: 13, weight: .regular, alpha: 0.82, at: CGPoint(x: CGFloat(width) / 2, y: 80))
-    text("Перетащите в Applications", size: 14, weight: .semibold, alpha: 1, at: CGPoint(x: CGFloat(width) / 2, y: y - 36))
-    text("Drag to Applications", size: 12, weight: .regular, alpha: 0.8, at: CGPoint(x: CGFloat(width) / 2, y: y + 36))
+    text("Live Wallpaper", size: 22, weight: .bold, alpha: 1, at: CGPoint(x: CGFloat(width) / 2, y: 98))
+    text("Перетащите в Applications", size: 14, weight: .semibold, alpha: 1, at: CGPoint(x: CGFloat(width) / 2, y: y - 44))
+    text("Drag to Applications", size: 12, weight: .regular, alpha: 0.6, at: CGPoint(x: CGFloat(width) / 2, y: y + 36))
     text("Первый запуск: Системные настройки → Конфиденциальность и безопасность → «Всё равно открыть»",
-         size: 11, weight: .regular, alpha: 0.85, at: CGPoint(x: CGFloat(width) / 2, y: CGFloat(height) - 40))
+         size: 11, weight: .regular, alpha: 0.7, at: CGPoint(x: CGFloat(width) / 2, y: CGFloat(height) - 40))
     text("First launch: System Settings → Privacy & Security → “Open Anyway”",
-         size: 11, weight: .regular, alpha: 0.7, at: CGPoint(x: CGFloat(width) / 2, y: CGFloat(height) - 24))
+         size: 11, weight: .regular, alpha: 0.5, at: CGPoint(x: CGFloat(width) / 2, y: CGFloat(height) - 24))
 }
 
 func write(_ rep: NSBitmapImageRep, to url: URL) throws {

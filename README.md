@@ -25,12 +25,12 @@ SKIP_INSTALL=1 ./scripts/build-app.sh
 ./scripts/make-dmg.sh build/LiveWallpaper.app build/LiveWallpaper.dmg
 ```
 
-The image opens as a window with its own background (`scripts/dmg-background.swift`: theme gradient, an arrow from the app to
-Applications, a one-line first-launch hint), a fixed window size and large icons in place; the volume has the app icon.
+The image opens as a window with its own background (`scripts/dmg-background.swift`: white page, the logo's black wavy stripes, an arrow from the app to
+Applications, a first-launch hint), a fixed window size and large icons in place; the volume has the app icon.
 The window layout is written by [dmgbuild](https://github.com/dmgbuild/dmgbuild) (`scripts/dmg-settings.py`), so Finder
 is not opened and no AppleScript runs. The first run installs dmgbuild (pinned) into `build/dmg-venv`, which needs the
 network once; nothing is installed system-wide. A preview of the window without mounting anything:
-`swift scripts/dmg-background.swift preview <AppIcon.icns> preview.png`.
+(`dmg-background.swift` is compiled with `Sources/LiveWallpaper/Logo.swift` by `swiftc`, as `scripts/make-dmg.sh` does; command `preview <AppIcon.icns> preview.png`).
 
 ### First launch
 

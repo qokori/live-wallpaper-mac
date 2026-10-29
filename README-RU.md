@@ -31,12 +31,12 @@ SKIP_INSTALL=1 ./scripts/build-app.sh
 ./scripts/make-dmg.sh build/LiveWallpaper.app build/LiveWallpaper.dmg
 ```
 
-Образ открывается окном со своим фоном (`scripts/dmg-background.swift`: градиент темы, стрелка от приложения к Applications,
+Образ открывается окном со своим фоном (`scripts/dmg-background.swift`: белая страница, чёрные волнистые полосы логотипа, стрелка от приложения к Applications,
 строка про первый запуск), заданным размером и крупными иконками на своих местах; у тома иконка приложения. Расположение
 окна записывает [dmgbuild](https://github.com/dmgbuild/dmgbuild) (`scripts/dmg-settings.py`): Finder не открывается,
 AppleScript не запускается. При первом запуске dmgbuild (закреплённая версия) ставится в `build/dmg-venv`, для этого один раз
 нужна сеть; в систему ничего не ставится. Как будет выглядеть окно, можно посмотреть, ничего не монтируя:
-`swift scripts/dmg-background.swift preview <AppIcon.icns> preview.png`.
+(`dmg-background.swift` вместе с `Sources/LiveWallpaper/Logo.swift` собирается `swiftc`, как в `scripts/make-dmg.sh`; команда `preview <AppIcon.icns> preview.png`).
 
 ### Первый запуск
 
