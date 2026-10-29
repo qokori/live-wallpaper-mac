@@ -112,3 +112,7 @@ in the window.
   per Space.
 - Forwarded pointer events are synthetic (`isTrusted` is false); a desktop click reaches both Finder and the page.
 - The same source on several screens decodes or renders once per screen.
+- Scene quality: pictures are limited once, by the canvas size when the page loads (a later resolution change or a
+  bigger screen keeps them small); the app still holds full-size pictures and the reduction happens in the page, so
+  the economy level saves page memory but not app memory. Videos inside scenes are decoded whole and ignore the
+  quality level; ordinary videos and GIFs are not affected by the scene settings.
