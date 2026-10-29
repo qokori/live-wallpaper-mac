@@ -109,7 +109,7 @@ final class GifContent: WallpaperContent {
             failed(GifError(error))
             return
         }
-        let maxSide = NSScreen.screens.map { Int(max($0.frame.width, $0.frame.height) * $0.backingScaleFactor) }.max() ?? 3840
+        let maxSide = NSScreen.biggestSide
         guard let decoder = FrameDecoder(url: url, info: info, maxSide: maxSide) else {
             failed(GifError.unreadable)
             return

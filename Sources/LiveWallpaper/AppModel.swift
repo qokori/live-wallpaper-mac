@@ -44,6 +44,7 @@ final class AppModel {
             if let data = try? JSONEncoder().encode(assignments) { defaults.set(data, forKey: Key.assignments) }
             controller.forgetFailures()
             reconcile()
+            collectConvertedGarbage()
         }
     }
 
@@ -119,10 +120,10 @@ final class AppModel {
         }
     }
 
-    /// Something to tell the person; the window shows it as an alert.
-    /// The name of the animation being turned into a video; the window shows it while it lasts.
-    var converting: String?
+    /// The names of the animations being turned into a video, those waiting included; the window shows them while any is left.
+    var converting: [String] = []
 
+    /// Something to tell the person; the window shows it as an alert.
     var notice: Notice? {
         didSet { if notice != nil { onNotice?() } }
     }
@@ -146,6 +147,14 @@ final class AppModel {
     @ObservationIgnored private let convertedDirectory: URL
     /// The longer side of the biggest screen, in pixels: the size a GIF is judged and converted at.
     @ObservationIgnored private let screenSide: () -> Int
+    /// Conversions under way or waiting, by the video's path: the same picture added twice waits for the one already running.
+    @ObservationIgnored private var conversions: [String: Task<Bool, Never>] = [:]
+    /// The last conversion queued; the next one starts when it ends, so one encoder runs at a time.
+    @ObservationIgnored private var conversionTail: Task<Void, Never>?
+    /// Videos made but not yet in the library, so the cleanup leaves them alone.
+    @ObservationIgnored private var reserved: Set<String> = []
+    /// The name of the picture a video was made from, for its entry in the library.
+    @ObservationIgnored private var originalNames: [String: String] = [:]
     @ObservationIgnored private let controller = WallpaperController()
     @ObservationIgnored private let monitor = SystemMonitor()
     @ObservationIgnored private let pointer = PointerForwarder()
@@ -156,7 +165,7 @@ final class AppModel {
         defaults: UserDefaults = .standard,
         libraryStore: LibraryStore = LibraryStore(fileURL: URL.applicationSupportDirectory.appending(path: "LiveWallpaper/library.json")),
         convertedDirectory: URL = URL.applicationSupportDirectory.appending(path: "LiveWallpaper/Converted", directoryHint: .isDirectory),
-        screenSide: @escaping () -> Int = { NSScreen.screens.map { Int(max($0.frame.width, $0.frame.height) * $0.backingScaleFactor) }.max() ?? 3840 }
+        screenSide: @escaping () -> Int = { NSScreen.biggestSide }
     ) {
         self.defaults = defaults
         self.libraryStore = libraryStore
@@ -180,6 +189,7 @@ final class AppModel {
             defaults.set(true, forKey: Key.libraryAdopted)
         }
         self.library = library
+        collectConvertedGarbage()
     }
 
     func start() {
@@ -244,10 +254,13 @@ final class AppModel {
     /// Also used by the command line (`--video`, `--web`, `--video-for`, `--web-for`): checks the source, keeps it in
     /// the library and puts it on the screen, or on all screens when `uuid` is nil.
     func setSource(_ source: WallpaperSource, forDisplay uuid: String?) {
-        Task {
-            guard let accepted = await accept(source) else { return }
-            apply(accepted, to: uuid.map(ApplyTarget.display) ?? .all)
-        }
+        Task { await show(source, forDisplay: uuid) }
+    }
+
+    /// Same as `setSource`, for a caller that waits: a big GIF is first turned into a video, as when it is added.
+    func show(_ source: WallpaperSource, forDisplay uuid: String?) async {
+        guard let accepted = await accept(source) else { return }
+        apply(accepted, to: uuid.map(ApplyTarget.display) ?? .all)
     }
 
     /// Adds to the library only (the window's «Добавить»); returns whether the source was accepted.
@@ -277,7 +290,7 @@ final class AppModel {
 
     func removeFromLibrary(_ item: SavedWallpaper) {
         library.remove(id: item.id)
-        removeConvertedVideo(of: item)
+        collectConvertedGarbage()
         if item.source.kind == .wallpaperEngine, let engine = try? EngineSupport.open(item.source.resolvedURL) { EngineCache.remove(for: engine) }
     }
 
@@ -297,50 +310,106 @@ final class AppModel {
                 return nil
             }
         }
+        if source.kind == .gif {
+            // Read once, off the main thread: a big file takes a while to go through.
+            let url = source.resolvedURL
+            let read = await Task.detached { Result { try AnimatedImageInfo.read(url) } }.value
+            switch read {
+            case .success(let info): return await convertedIfBig(source, info: info)
+            case .failure(let error):
+                notice = Notice(title: "Это не подойдёт", text: GifError(error).localizedDescription)
+                return nil
+            }
+        }
         if let problem = await Self.problem(with: source) {
             notice = Notice(title: "Это не подойдёт", text: problem)
             return nil
         }
-        if source.kind == .gif { return await convertedIfBig(source) }
         return source
     }
 
     /// A GIF or APNG whose frames do not all stay decoded costs a decode per frame (measured 20–40 % of a core), so it
     /// goes into the library as a video made from it. The original stays where it is. A conversion that fails leaves
-    /// the picture as it was: it still plays, only heavier.
-    private func convertedIfBig(_ source: WallpaperSource) async -> WallpaperSource {
-        let original = source.resolvedURL
+    /// the picture as it was: it still plays, only heavier. Several at once go one after another; the same picture twice
+    /// is made once.
+    private func convertedIfBig(_ source: WallpaperSource, info: AnimatedImageInfo) async -> WallpaperSource {
         let side = screenSide()
-        guard let info = try? AnimatedImageInfo.read(original), GifConversionPolicy.shouldConvert(info, maxSide: side) else { return source }
-        let video = GifTranscoder.videoURL(for: original, in: convertedDirectory)
-        let size = (try? video.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
-        if size == 0 {
-            converting = original.lastPathComponent
-            defer { converting = nil }
-            do {
-                try await GifTranscoder.convert(original, to: video, maxSide: side)
-            } catch {
-                Log.event("convert \(original.lastPathComponent): \(error.localizedDescription); the picture is used as it is")
-                return source
-            }
+        guard GifConversionPolicy.shouldConvert(info, maxSide: side) else { return source }
+        let original = source.resolvedURL
+        let video = GifTranscoder.videoURL(for: original, maxSide: side, in: convertedDirectory)
+        let converted = WallpaperSource(kind: .video, location: video.path)
+        originalNames[video.path] = original.deletingPathExtension().lastPathComponent
+        let existing = (try? FileManager.default.attributesOfItem(atPath: video.path)[.size] as? Int) ?? 0
+        if existing > 0 {
+            reserved.insert(video.path)
+            return converted
         }
-        Log.event("convert \(original.lastPathComponent): \(info.frameCount) frames → \(video.lastPathComponent)")
-        return WallpaperSource(kind: .video, location: video.path)
+        if let running = conversions[video.path] { return await running.value ? converted : source }
+        let name = original.lastPathComponent
+        let previous = conversionTail
+        converting.append(name)
+        let task = Task { @MainActor [weak self] () -> Bool in
+            await previous?.value
+            var done = false
+            do {
+                try await GifTranscoder.convert(original, info: info, to: video, maxSide: side)
+                Log.event("convert \(name): \(info.frameCount) frames → \(video.lastPathComponent)")
+                done = true
+            } catch {
+                Log.event("convert \(name): \(error.localizedDescription); the picture is used as it is")
+            }
+            if let self {
+                if done { reserved.insert(video.path) }
+                conversions[video.path] = nil
+                if let at = converting.firstIndex(of: name) { converting.remove(at: at) }
+            }
+            return done
+        }
+        conversions[video.path] = task
+        conversionTail = Task { _ = await task.value }
+        return await task.value ? converted : source
     }
 
-    /// Deletes the video made from a GIF once no library item uses it.
-    private func removeConvertedVideo(of item: SavedWallpaper) {
-        guard item.source.kind == .video else { return }
-        let url = item.source.resolvedURL.standardizedFileURL
-        guard url.path.hasPrefix(convertedDirectory.standardizedFileURL.path + "/"),
-              !library.items.contains(where: { $0.source.location == item.source.location })
+    /// Whether the entry plays a video made from a GIF, which is deleted once nothing shows it.
+    func isConvertedVideo(_ item: SavedWallpaper) -> Bool {
+        item.source.kind == .video && item.source.resolvedURL.standardizedFileURL.path.hasPrefix(convertedDirectory.standardizedFileURL.path + "/")
+    }
+
+    /// Deletes what is left in the folder of converted videos: a folder no library entry and no screen points to, and
+    /// half-written files. A video on a screen stays even when its entry is gone, so a restart finds it. Not done when the
+    /// library could not be read (its entries are unknown then).
+    private func collectConvertedGarbage() {
+        let fm = FileManager.default
+        let unreadable = libraryStore.fileURL.deletingLastPathComponent().appending(path: "library.unreadable.json")
+        guard !fm.fileExists(atPath: unreadable.path),
+              let folders = try? fm.contentsOfDirectory(at: convertedDirectory, includingPropertiesForKeys: nil)
         else { return }
-        try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        let chosen = [assignments.shared].compactMap { $0 } + Array(assignments.perScreen.values)
+        var used = Set(conversions.keys).union(reserved)
+        for source in library.items.map(\.source) + chosen where source.kind == .video {
+            used.insert(source.location)
+            used.insert(source.resolvedURL.path)
+            used.insert(source.resolvedURL.standardizedFileURL.path)
+        }
+        for folder in folders where (try? folder.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
+            let prefix = folder.standardizedFileURL.path + "/"
+            let inUse = used.contains { $0.hasPrefix(prefix) || $0.hasPrefix(folder.path + "/") }
+            if !inUse {
+                try? fm.removeItem(at: folder)
+            } else if !conversions.keys.contains(where: { $0.hasPrefix(prefix) || $0.hasPrefix(folder.path + "/") }) {
+                for file in (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+                where file.lastPathComponent.hasPrefix(".partial-") {
+                    try? fm.removeItem(at: file)
+                }
+            }
+        }
     }
 
     /// Puts the source in the library; a Wallpaper Engine project that is new there is named by its `title`.
     private func addNamed(_ source: WallpaperSource) {
         let item = library.add(source)
+        reserved.remove(source.location)
+        if let name = originalNames[source.location], item.name == nil { library.rename(id: item.id, to: name) }
         if source.kind == .wallpaperEngine, item.name == nil, let title = EngineSupport.title(of: source) {
             library.rename(id: item.id, to: title)
         }

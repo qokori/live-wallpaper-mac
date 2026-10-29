@@ -7,6 +7,15 @@ import WallpaperEngineKit
 
 @MainActor
 @Suite(.serialized) struct SceneSupportTests {
+    /// The snapshots a scene stores go to a temporary folder, never to the real ~/Library/Caches.
+    private static let cacheRoot: URL = {
+        let root = FileManager.default.temporaryDirectory.appending(path: "lw-engine-cache-\(UUID().uuidString)", directoryHint: .isDirectory)
+        EngineCache.root = root
+        return root
+    }()
+
+    init() { _ = Self.cacheRoot }
+
     private func folder() -> URL {
         FileManager.default.temporaryDirectory.appending(path: "lw-support-\(UUID().uuidString)")
     }

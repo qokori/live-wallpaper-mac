@@ -105,9 +105,10 @@ private struct LibraryView: View {
             HStack {
                 Text("Библиотека").font(.title2.bold())
                 Spacer()
-                if let name = model.converting {
+                if let name = model.converting.first {
                     ProgressView().controlSize(.small)
-                    Text("Превращаю «\(name)» в видео…").font(.callout).foregroundStyle(.secondary)
+                    Text(model.converting.count == 1 ? "Превращаю «\(name)» в видео…" : "Превращаю «\(name)» и ещё \(model.converting.count - 1) в видео…")
+                        .font(.callout).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                 }
                 Menu {
                     Button("Видео…") { pick(.video) }
@@ -169,7 +170,11 @@ private struct LibraryView: View {
             }
             Button("Отмена", role: .cancel) { confirmRemoval = nil }
         } message: {
-            Text("Файл остаётся на диске. Если эти обои сейчас на экране, они продолжат играть.")
+            if let item = confirmRemoval, model.isConvertedVideo(item) {
+                Text("Видео, сделанное из GIF, будет удалено с диска, как только его не будет на экранах; сам GIF остаётся. Если эти обои сейчас на экране, они продолжат играть.")
+            } else {
+                Text("Файл остаётся на диске. Если эти обои сейчас на экране, они продолжат играть.")
+            }
         }
     }
 

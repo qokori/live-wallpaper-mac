@@ -13,6 +13,13 @@ extension NSScreen {
     }
 }
 
+extension NSScreen {
+    /// The longer side of the biggest screen, in pixels: the size a picture is judged and decoded at.
+    static var biggestSide: Int {
+        screens.map { Int(max($0.frame.width, $0.frame.height) * $0.backingScaleFactor) }.max() ?? 3840
+    }
+}
+
 struct ScreenStatus: Identifiable, Equatable {
     let id: String
     let name: String

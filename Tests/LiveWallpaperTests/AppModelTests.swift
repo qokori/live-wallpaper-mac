@@ -18,7 +18,10 @@ struct Sandbox {
         store = LibraryStore(fileURL: directory.appending(path: "library.json"))
     }
 
-    func model() -> AppModel { AppModel(defaults: defaults, libraryStore: store) }
+    /// Never reads or writes the real Application Support: the converted videos go under `directory`, and the screen size is fixed.
+    func model(screenSide: Int = 2000) -> AppModel {
+        AppModel(defaults: defaults, libraryStore: store, convertedDirectory: directory.appending(path: "Converted"), screenSide: { screenSide })
+    }
 
     func file(_ name: String) throws -> URL {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
