@@ -36,6 +36,9 @@ public struct FrameTimeline: Equatable, Sendable {
         return raw
     }
 
+    /// Seconds from the start of the loop to the start of frame `index`.
+    public func start(of index: Int) -> Double { starts[index] }
+
     /// Index of the frame on screen `elapsed` seconds after the start; the loop repeats without end.
     public func frame(at elapsed: Double) -> Int {
         guard frameCount > 1, duration > 0 else { return 0 }
@@ -111,5 +114,22 @@ public enum FrameCachePolicy {
     /// Largest side to decode at: a picture bigger than the screen is shrunk to it.
     public static func decodeSize(pixelWidth: Int, pixelHeight: Int, maxSide: Int) -> Int {
         max(1, min(max(pixelWidth, pixelHeight), maxSide))
+    }
+
+    /// Bytes one frame takes once decoded at `decodeSize` for a screen of `maxSide` pixels.
+    public static func decodedFrameBytes(_ info: AnimatedImageInfo, maxSide: Int) -> Int {
+        let decode = decodeSize(pixelWidth: info.pixelWidth, pixelHeight: info.pixelHeight, maxSide: maxSide)
+        let scale = Double(decode) / Double(max(info.pixelWidth, info.pixelHeight))
+        return Int(Double(info.frameBytes) * scale * scale)
+    }
+}
+
+/// Which animated pictures are turned into a video when they are added. The player draws a picture whose frames all stay
+/// decoded for almost nothing (measured: 480x270 x60, 2.8 % of a core). One that does not fit `FrameCachePolicy.budget`
+/// is decoded again on every frame (1280x720 x60: 22 %; 1920x1080 x120: 40 %) and a video does the same job in the
+/// system's decoder. So the line is the cache budget itself: the same test the player uses to decide.
+public enum GifConversionPolicy {
+    public static func shouldConvert(_ info: AnimatedImageInfo, maxSide: Int) -> Bool {
+        !FrameCachePolicy.keepsAllFrames(frameCount: info.frameCount, frameBytes: FrameCachePolicy.decodedFrameBytes(info, maxSide: maxSide))
     }
 }

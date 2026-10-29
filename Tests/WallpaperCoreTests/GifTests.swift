@@ -214,3 +214,35 @@ import Testing
         #expect(try JSONDecoder().decode(WallpaperAssignments.self, from: data) == assignments)
     }
 }
+
+@Suite struct GifConversionPolicyTests {
+    private func info(_ width: Int, _ height: Int, frames: Int) -> AnimatedImageInfo {
+        AnimatedImageInfo(timeline: FrameTimeline(delays: Array(repeating: 0.04, count: frames)), pixelWidth: width, pixelHeight: height)
+    }
+
+    // The measured cases: 480x270 x60 plays from the cache (2.8 % of a core), 1280x720 x60 and 1920x1080 x120 decode on
+    // every frame (22 % and 40 %).
+    @Test func aPictureThatFitsTheCacheStaysAsItIs() {
+        #expect(!GifConversionPolicy.shouldConvert(info(480, 270, frames: 60), maxSide: 3840))
+    }
+
+    @Test func aPictureThatDoesNotFitTheCacheBecomesAVideo() {
+        #expect(GifConversionPolicy.shouldConvert(info(1280, 720, frames: 60), maxSide: 3840))
+        #expect(GifConversionPolicy.shouldConvert(info(1920, 1080, frames: 120), maxSide: 3840))
+    }
+
+    @Test func theLineIsTheCacheBudgetAtTheSizeItIsDecodedAt() {
+        // 64 MiB = 16 777 216 pixels of frames: 1024x512 x32 is exactly the budget, one frame more is over it.
+        #expect(!GifConversionPolicy.shouldConvert(info(1024, 512, frames: 32), maxSide: 4096))
+        #expect(GifConversionPolicy.shouldConvert(info(1024, 512, frames: 33), maxSide: 4096))
+        // On a small screen the frames are decoded smaller, so the same picture fits.
+        #expect(GifConversionPolicy.shouldConvert(info(1920, 1080, frames: 30), maxSide: 3840))
+        #expect(!GifConversionPolicy.shouldConvert(info(1920, 1080, frames: 30), maxSide: 960))
+    }
+
+    @Test func theDecoderAndThePolicyAgreeOnTheFrameSize() {
+        let big = info(3840, 2160, frames: 10)
+        #expect(FrameCachePolicy.decodedFrameBytes(big, maxSide: 1920) == 1920 * 1080 * 4)
+        #expect(FrameCachePolicy.decodedFrameBytes(big, maxSide: 8000) == big.frameBytes)
+    }
+}

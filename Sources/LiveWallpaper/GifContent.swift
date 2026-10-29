@@ -20,9 +20,7 @@ final class FrameDecoder: @unchecked Sendable {
         self.source = source
         let decode = FrameCachePolicy.decodeSize(pixelWidth: info.pixelWidth, pixelHeight: info.pixelHeight, maxSide: maxSide)
         side = decode < max(info.pixelWidth, info.pixelHeight) ? decode : nil
-        let scale = Double(decode) / Double(max(info.pixelWidth, info.pixelHeight))
-        let bytes = Int(Double(info.frameBytes) * scale * scale)
-        keepsAll = FrameCachePolicy.keepsAllFrames(frameCount: info.frameCount, frameBytes: bytes)
+        keepsAll = FrameCachePolicy.keepsAllFrames(frameCount: info.frameCount, frameBytes: FrameCachePolicy.decodedFrameBytes(info, maxSide: maxSide))
     }
 
     /// Decodes `index` (and, when frames are not all kept, drops the others except `prefetch`), then calls back on main.
