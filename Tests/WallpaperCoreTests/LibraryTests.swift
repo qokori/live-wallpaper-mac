@@ -100,6 +100,66 @@ import Testing
         try Data("{ not json".utf8).write(to: file)
         #expect(store.load().items.isEmpty)
     }
+
+    private func decoded(_ data: Data) throws -> Any {
+        try JSONSerialization.jsonObject(with: data)
+    }
+
+    private func entries(_ data: Data) throws -> [Any] {
+        let root = try #require(try decoded(data) as? [String: Any])
+        return try #require(root["items"] as? [Any])
+    }
+
+    /// The rollback case: a library written by a newer version has a kind of source this one does not know.
+    @Test func entriesOfAnUnknownKindSurviveLoadAndSave() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "lw-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appending(path: "library.json")
+        let json = """
+        {"items":[
+          {"id":"a","added":1000,"source":{"kind":"video","location":"/v/a.mov"}},
+          {"id":"b","added":2000,"name":"Новое","source":{"kind":"hologram","location":"/h/b","engine":"scene","extra":[1,2.5,null,true]}},
+          "not an item",
+          {"id":"c","added":3000,"source":{"kind":"web","location":"/p/c"}}
+        ]}
+        """
+        try Data(json.utf8).write(to: file)
+        let store = LibraryStore(fileURL: file)
+
+        var library = store.load()
+        #expect(library.items.map(\.id) == ["a", "c"])
+        library.rename(id: "a", to: "Дождь")
+        library.add(WallpaperSource(kind: .gif, location: "/g/d.gif"), now: t0, makeID: { "d" })
+        try store.save(library)
+
+        let all = try entries(try Data(contentsOf: file))
+        #expect(all.count == 5)
+        let saved = all.compactMap { $0 as? [String: Any] }
+        let hologram = try #require(saved.first { $0["id"] as? String == "b" })
+        #expect(hologram["name"] as? String == "Новое")
+        let source = try #require(hologram["source"] as? [String: Any])
+        #expect(source["kind"] as? String == "hologram")
+        #expect(source["engine"] as? String == "scene")
+        #expect((source["extra"] as? [Any])?.count == 4)
+        #expect(saved.contains { $0["id"] as? String == "d" })
+        // The entry that was not even an object stays too.
+        #expect(all.contains { ($0 as? String) == "not an item" })
+        // And the reloaded library is the same one.
+        #expect(store.load() == library)
+    }
+
+    @Test func aFileThatIsNotALibraryIsSetAsideNotOverwritten() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "lw-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appending(path: "library.json")
+        try Data("{ not json".utf8).write(to: file)
+        let store = LibraryStore(fileURL: file)
+        #expect(store.load().items.isEmpty)
+        let aside = dir.appending(path: "library.unreadable.json")
+        #expect(try Data(contentsOf: aside) == Data("{ not json".utf8))
+    }
 }
 
 @Suite struct ApplyTests {

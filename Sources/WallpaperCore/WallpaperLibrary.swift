@@ -25,9 +25,41 @@ public struct SavedWallpaper: Codable, Equatable, Identifiable, Sendable {
 /// video, folder or address again returns the item that is already there.
 public struct WallpaperLibrary: Codable, Equatable, Sendable {
     public private(set) var items: [SavedWallpaper]
+    /// Entries this version cannot read: a kind of source it does not know (written by a newer version) or a damaged
+    /// item. They are not shown, and they are written back untouched, so one odd entry never costs the whole library.
+    public private(set) var unreadable: [JSONValue]
 
     public init(items: [SavedWallpaper] = []) {
         self.items = items
+        unreadable = []
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case items
+    }
+
+    /// Reads the item list entry by entry; an entry that does not decode is kept as it is.
+    private struct Entry: Decodable {
+        let item: SavedWallpaper?
+        let raw: JSONValue
+
+        init(from decoder: Decoder) throws {
+            raw = try JSONValue(from: decoder)
+            item = try? SavedWallpaper(from: decoder)
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let entries = try decoder.container(keyedBy: CodingKeys.self).decode([Entry].self, forKey: .items)
+        items = entries.compactMap(\.item)
+        unreadable = entries.filter { $0.item == nil }.map(\.raw)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        var list = container.nestedUnkeyedContainer(forKey: .items)
+        for item in items { try list.encode(item) }
+        for raw in unreadable { try list.encode(raw) }
     }
 
     /// Same kind and same place; the bookmark and the name do not matter.
@@ -78,7 +110,9 @@ public struct WallpaperLibrary: Codable, Equatable, Sendable {
     }
 }
 
-/// The library in a JSON file. A missing or unreadable file is an empty library; saving never leaves a half-written file.
+/// The library in a JSON file. A missing file is an empty library. A file that is not a library at all is set aside as
+/// `library.unreadable.json` before an empty one is used, so the next save cannot destroy it. Entries of an unknown kind
+/// stay in the file (see `WallpaperLibrary.unreadable`). Saving never leaves a half-written file.
 public struct LibraryStore: Sendable {
     public let fileURL: URL
 
@@ -90,7 +124,11 @@ public struct LibraryStore: Sendable {
         guard let data = try? Data(contentsOf: fileURL) else { return WallpaperLibrary() }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .secondsSince1970
-        return (try? decoder.decode(WallpaperLibrary.self, from: data)) ?? WallpaperLibrary()
+        if let library = try? decoder.decode(WallpaperLibrary.self, from: data) { return library }
+        let aside = fileURL.deletingLastPathComponent().appending(path: "library.unreadable.json")
+        try? FileManager.default.removeItem(at: aside)
+        try? FileManager.default.copyItem(at: fileURL, to: aside)
+        return WallpaperLibrary()
     }
 
     public func save(_ library: WallpaperLibrary) throws {
