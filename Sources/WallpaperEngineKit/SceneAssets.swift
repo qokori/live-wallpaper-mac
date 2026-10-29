@@ -34,6 +34,8 @@ public final class SceneAssets: @unchecked Sendable {
         var failed = Set<String>()
         let budget = TexFile.Budget()
         for path in document.textures {
+            // A scene nobody waits for any more stops between textures.
+            try Task.checkCancellation()
             do {
                 guard let bytes = files.data(path) else { throw TexFile.Failure.damaged("нет файла") }
                 let file = try TexFile(data: bytes, budget: budget)

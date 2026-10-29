@@ -9,24 +9,24 @@ import WebKit
 
 /// A two-frame MP4 made with AVAssetWriter, so a video project has something real to play.
 enum TestVideo {
-    static func write(_ url: URL, fill: UInt8? = nil) async throws {
+    static func write(_ url: URL, fill: UInt8? = nil, width: Int = 64, height: Int = 48) async throws {
         let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
-            AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: 64, AVVideoHeightKey: 48,
+            AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: width, AVVideoHeightKey: height,
         ])
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-            kCVPixelBufferWidthKey as String: 64, kCVPixelBufferHeightKey as String: 48,
+            kCVPixelBufferWidthKey as String: width, kCVPixelBufferHeightKey as String: height,
         ])
         writer.add(input)
         writer.startWriting()
         writer.startSession(atSourceTime: .zero)
         for index in 0..<2 {
             var buffer: CVPixelBuffer?
-            CVPixelBufferCreate(nil, 64, 48, kCVPixelFormatType_32BGRA, nil, &buffer)
+            CVPixelBufferCreate(nil, width, height, kCVPixelFormatType_32BGRA, nil, &buffer)
             if let fill, let buffer {
                 CVPixelBufferLockBaseAddress(buffer, [])
-                memset(CVPixelBufferGetBaseAddress(buffer), Int32(fill), CVPixelBufferGetBytesPerRow(buffer) * 48)
+                memset(CVPixelBufferGetBaseAddress(buffer), Int32(fill), CVPixelBufferGetBytesPerRow(buffer) * height)
                 CVPixelBufferUnlockBaseAddress(buffer, [])
             }
             while !input.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(5)) }

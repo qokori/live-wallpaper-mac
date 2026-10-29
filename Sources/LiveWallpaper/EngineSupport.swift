@@ -96,29 +96,42 @@ enum EngineSupport {
 
     /// What a project's content needs before it can be put on screen: nothing (`ready`), or work that must not block
     /// the main thread (`later`: the scene's package is read and its textures decoded in the background).
+    ///
+    /// `settings` is asked when the content is made, so a scene that was built while the settings changed gets the new ones.
+    /// A build that is cancelled while it waits stops decoding and makes no web view.
     @MainActor
     static func build(
-        for source: WallpaperSource, frameRate: Int, quality: RenderQuality = .maximum, label: String, snapshotStored: @escaping @MainActor () -> Void = {}
+        for source: WallpaperSource, settings: @escaping @MainActor () -> SceneSettings, label: String,
+        snapshotStored: @escaping @MainActor () -> Void = {}
     ) throws -> ContentBuild {
         let item = try open(source.resolvedURL)
         let known = item.type == .scene ? cachedSceneAssets(item) : nil
         guard item.type == .scene, known == nil else {
-            return .ready(try content(for: item, assets: known, frameRate: frameRate, quality: quality, label: label, snapshotStored: snapshotStored))
+            let now = settings()
+            return .ready(try content(for: item, assets: known, frameRate: now.frameRate, quality: now.quality, label: label, snapshotStored: snapshotStored))
         }
         return .later {
             let assets: SceneAssets?
-            do { assets = try await loadSceneAssets(item) } catch {
+            do { assets = try await loadSceneAssets(item) } catch is CancellationError { throw CancellationError() } catch {
                 Log.event("\(label): сцену не удалось разобрать: \(error.localizedDescription)")
                 assets = nil
             }
-            return try content(for: item, assets: assets, frameRate: frameRate, quality: quality, label: label, snapshotStored: snapshotStored)
+            try Task.checkCancellation()
+            let now = settings()
+            return try content(for: item, assets: assets, frameRate: now.frameRate, quality: now.quality, label: label, snapshotStored: snapshotStored)
         }
+    }
+
+    /// The frame rate and quality a scene is drawn with.
+    struct SceneSettings {
+        var frameRate: Int
+        var quality: RenderQuality
     }
 
     /// The same, built on the calling thread: for tests and for content that needs no waiting.
     @MainActor
     static func content(
-        for source: WallpaperSource, frameRate: Int, quality: RenderQuality = .maximum, label: String, snapshotStored: @escaping @MainActor () -> Void = {}
+        for source: WallpaperSource, frameRate: Int, quality: RenderQuality = .standard, label: String, snapshotStored: @escaping @MainActor () -> Void = {}
     ) throws -> WallpaperContent {
         let item = try open(source.resolvedURL)
         let assets = item.type == .scene ? try? sharedSceneAssets(item) : nil
@@ -174,13 +187,31 @@ enum EngineSupport {
     private nonisolated(unsafe) static var checks: [String: SceneAssets.Check] = [:]
     private static let cacheLock = NSLock()
 
-    /// Identifies a project's content: where it is and when its package last changed.
-    private static func key(_ item: EngineItem) -> String {
-        let modified = item.package.flatMap { try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate }
-        return "\(item.folder.path)|\(modified?.timeIntervalSince1970 ?? 0)"
+    /// Identifies a project's content: where it is and when its package and `project.json` last changed.
+    static func key(_ item: EngineItem) -> String {
+        func modified(_ url: URL?) -> TimeInterval {
+            url.flatMap { try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate }?.timeIntervalSince1970 ?? 0
+        }
+        return "\(item.folder.path)|\(modified(item.package))|\(modified(item.folder.appending(path: "project.json")))"
     }
 
-    private nonisolated(unsafe) static var inFlight: [String: Task<SceneAssets, Error>] = [:]
+    /// A background build and how many screens wait for it; the last to leave cancels it.
+    private final class Build: @unchecked Sendable {
+        let task: Task<SceneAssets, Error>
+        var waiters = 1
+        init(_ task: Task<SceneAssets, Error>) { self.task = task }
+    }
+
+    private nonisolated(unsafe) static var inFlight: [String: Build] = [:]
+    /// For tests: holds a background build back until it returns.
+    nonisolated(unsafe) static var buildGate: (@Sendable () -> Void)?
+
+    /// For tests: builds running and the screens waiting for them.
+    static var buildsInFlight: (builds: Int, waiters: Int) {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        return (inFlight.count, inFlight.values.reduce(0) { $0 + $1.waiters })
+    }
 
     private static func cachedSceneAssets(_ item: EngineItem) -> SceneAssets? {
         let key = key(item)
@@ -202,34 +233,61 @@ enum EngineSupport {
     }
 
     /// The same, read and decoded in the background. Screens that ask for the same scene while it is being built
-    /// wait for that one build.
+    /// wait for that one build; when the last of them is cancelled, the build stops too.
     static func loadSceneAssets(_ item: EngineItem) async throws -> SceneAssets {
-        if let known = cachedSceneAssets(item) { return known }
         let key = key(item)
-        let task = buildTask(key, item)
+        let build: Build
+        switch join(key, item) {
+        case .known(let assets): return assets
+        case .running(let running): build = running
+        }
         do {
-            let assets = try await task.value
-            finish(key, assets)
+            let assets = try await withTaskCancellationHandler { try await build.task.value } onCancel: { leave(key, build) }
+            finish(key, build, assets)
             return assets
         } catch {
-            finish(key, nil)
+            finish(key, build, nil)
             throw error
         }
     }
 
-    private static func buildTask(_ key: String, _ item: EngineItem) -> Task<SceneAssets, Error> {
-        cacheLock.lock()
-        defer { cacheLock.unlock() }
-        let task = inFlight[key] ?? Task.detached(priority: .userInitiated) { try sceneAssets(item) }
-        inFlight[key] = task
-        return task
+    private enum Join {
+        case known(SceneAssets)
+        case running(Build)
     }
 
-    private static func finish(_ key: String, _ assets: SceneAssets?) {
+    /// One lock section for the cache check and the lookup, so no second decode starts in between.
+    private static func join(_ key: String, _ item: EngineItem) -> Join {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        if let known = shared[key]?.assets { return .known(known) }
+        if let running = inFlight[key] {
+            running.waiters += 1
+            return .running(running)
+        }
+        let build = Build(Task.detached(priority: .userInitiated) {
+            buildGate?()
+            try Task.checkCancellation()
+            return try sceneAssets(item)
+        })
+        inFlight[key] = build
+        return .running(build)
+    }
+
+    private static func leave(_ key: String, _ build: Build) {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        build.waiters -= 1
+        guard build.waiters <= 0 else { return }
+        build.task.cancel()
+        if inFlight[key] === build { inFlight[key] = nil }
+    }
+
+    private static func finish(_ key: String, _ build: Build, _ assets: SceneAssets?) {
         cacheLock.lock()
         defer { cacheLock.unlock() }
         if let assets { shared[key] = WeakAssets(assets) }
-        inFlight[key] = nil
+        if inFlight[key] === build { inFlight[key] = nil }
     }
 
     /// Whether the scene is drawn (and not only shown by its preview) and what it leaves out. Decodes no texture, so it

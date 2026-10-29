@@ -86,10 +86,12 @@ final class AppModel {
     /// 15, 30 or 60 frames per second for scenes and web wallpapers.
     var webFrameRate: Int {
         didSet {
-            // Assigning here does not run this observer again.
-            if !RenderQuality.frameRates.contains(webFrameRate) { webFrameRate = RenderQuality.standardFrameRate }
-            defaults.set(webFrameRate, forKey: Key.webFrameRate)
-            controller.setWebFrameRate(webFrameRate)
+            // A rate that is not on offer becomes the standard one. The assignment may run this observer once more:
+            // the second run sees a valid value and does the same work again, which does no harm.
+            let valid = RenderQuality.frameRate(webFrameRate)
+            if valid != webFrameRate { webFrameRate = valid }
+            defaults.set(valid, forKey: Key.webFrameRate)
+            controller.setWebFrameRate(valid)
         }
     }
 
@@ -325,7 +327,10 @@ final class AppModel {
         case .gif:
             return .ready(GifContent(url: source.resolvedURL, label: label))
         case .wallpaperEngine:
-            return try EngineSupport.build(for: source, frameRate: webFrameRate, quality: renderQuality, label: label) { [weak self] in
+            return try EngineSupport.build(
+                for: source, settings: { [weak self] in .init(frameRate: self?.webFrameRate ?? RenderQuality.standardFrameRate, quality: self?.renderQuality ?? .standard) },
+                label: label
+            ) { [weak self] in
                 self?.sceneSnapshotStored(for: source)
             }
         case .web where source.isRemote:
