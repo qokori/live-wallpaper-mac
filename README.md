@@ -72,8 +72,11 @@ still ad-hoc signed and not notarized. Read the script first if you like: [scrip
   keep working.
 - Wallpaper Engine projects (a Workshop folder copied to the Mac, a scene `.pkg` or a `project.json`): `video` projects play
   their mp4/m4v/mov, `web` projects run in the web view with the `wallpaperPropertyListener` host they expect (default settings,
-  frame rate, pause); a `scene` project shows its preview picture for now ("scene: preview only" on its card); rendering
-  scenes is not done yet. Library → Add → Wallpaper Engine…, drag a folder, `.pkg` or `project.json` into the window, or
+  frame rate, pause); a `scene` project is drawn live: picture layers with position, rotation, scale, colour and
+  transparency, video layers (muted), the blend modes "multiply" and "screen", and parallax that follows the pointer
+  on every screen with a scene. Effects, particles, layer animation, text, sound and SceneScript are not drawn yet: such
+  a scene looks plainer than in Wallpaper Engine, and a scene that cannot be drawn at all shows its preview ("scene: preview only"
+  on its card). Library → Add → Wallpaper Engine…, drag a folder, `.pkg` or `project.json` into the window, or
   `--we <path>` / `--we-for <display UUID> <path>`; `--we-inspect <path>` prints what a project holds. Nothing is copied or unpacked.
   The library file is read entry by entry: an entry of a kind this version does not know is kept and written back unchanged.
 - One source for all screens or one per screen; survives monitors being plugged in or out and resolution changes.
