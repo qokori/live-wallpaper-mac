@@ -404,4 +404,48 @@ func near(_ a: [Int], _ b: [Int], tolerance: Int = 6) -> Bool {
         #expect(status["quality"] as? String == "maximum" && reducedSizes(status).isEmpty, "\(status)")
         #expect(!probe.webView.isHidden)
     }
+
+    /// The model has to hear of a rollback, or its setting and the screen disagree.
+    @Test func aRollbackIsReportedSoTheSettingFollowsTheScreen() async throws {
+        let dir = folder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try quadrantScene(dir)
+        let probe = try SceneProbe(folder: dir, quality: .maximum)
+        defer { probe.close() }
+        try await probe.load()
+        var told: [RenderQuality] = []
+        probe.web.qualityRolledBack = { told.append($0) }
+        probe.web.setQuality(.economy)
+        #expect(probe.web.reloadFailed("тест"))
+        #expect(told == [.maximum])
+    }
+
+    /// A page that never reports does not keep the old picture on screen for ever.
+    @Test func aReloadThatNeverReportsLosesItsCover() async throws {
+        let dir = folder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try quadrantScene(dir)
+        let probe = try SceneProbe(folder: dir, quality: .maximum)
+        defer { probe.close() }
+        try await probe.load()
+        probe.web.reloadTimeout = 0.05
+        probe.web.setQuality(.economy)
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(probe.web.snapshotView.isHidden && !probe.webView.isHidden)
+    }
+
+    /// A message from a page that was replaced says nothing about the page now loading.
+    @Test func aMessageFromAnotherQualityIsIgnored() async throws {
+        let dir = folder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try quadrantScene(dir)
+        let probe = try SceneProbe(folder: dir, quality: .economy)
+        defer { probe.close() }
+        var ready = 0
+        probe.web.start(ready: { ready += 1 }, failed: { _ in })
+        probe.web.sceneMessage(["type": "ready", "q": "maximum"])
+        #expect(ready == 0)
+        probe.web.sceneMessage(["type": "ready", "q": "economy"])
+        #expect(ready == 1)
+    }
 }

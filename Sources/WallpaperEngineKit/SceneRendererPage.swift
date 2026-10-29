@@ -7,7 +7,9 @@ public enum SceneRendererPage {
     <style>html,body{margin:0;height:100%;background:#000;overflow:hidden}canvas{display:block;width:100vw;height:100vh}</style>
     </head><body><canvas id="c"></canvas><script>
     (() => {
-      const post = (message) => { try { webkit.messageHandlers.scene.postMessage(message); } catch (e) {} };
+      // Every message carries the quality this page was loaded for, so the app can tell it from a page it replaced.
+      const pageQuality = new URLSearchParams(location.search).get('q') || 'maximum';
+      const post = (message) => { try { webkit.messageHandlers.scene.postMessage({ ...message, q: pageQuality }); } catch (e) {} };
       const status = { drawn: 0, unknownModes: [], failed: [], videos: 0, canvas: [0, 0], parallax: [0, 0] };
       // Declared before the api and the early returns, so status() and the setters work even when the page failed to start.
       let scene, textures = [], layers = [], videos = [], rect = [0, 0, 1, 1];
@@ -26,7 +28,7 @@ public enum SceneRendererPage {
       // Quality comes with the address (?q=economy|screen|maximum). Economy draws one canvas pixel per point and halves
       // pictures; economy and screen never keep a picture larger than the canvas (and never below 512 pixels);
       // maximum reduces nothing. Video is not reduced: shrinking it through a canvas costs more than it saves.
-      const quality = new URLSearchParams(location.search).get('q') || 'maximum';
+      const quality = pageQuality;
       status.quality = quality; status.reduced = [];
       const gl = document.getElementById('c').getContext('webgl2', { alpha: false, antialias: false, depth: false, stencil: false, powerPreference: 'low-power' });
       if (!gl) { fail('WebGL2 недоступен'); return; }

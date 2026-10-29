@@ -203,15 +203,17 @@ enum EngineSupport {
     }
 
     private nonisolated(unsafe) static var inFlight: [String: Build] = [:]
-    /// For tests: holds a background build back until it returns.
+    #if DEBUG
+    /// For tests only: holds a background build back until it returns.
     nonisolated(unsafe) static var buildGate: (@Sendable () -> Void)?
 
-    /// For tests: builds running and the screens waiting for them.
+    /// For tests only: builds running and the screens waiting for them.
     static var buildsInFlight: (builds: Int, waiters: Int) {
         cacheLock.lock()
         defer { cacheLock.unlock() }
         return (inFlight.count, inFlight.values.reduce(0) { $0 + $1.waiters })
     }
+    #endif
 
     private static func cachedSceneAssets(_ item: EngineItem) -> SceneAssets? {
         let key = key(item)
@@ -266,7 +268,9 @@ enum EngineSupport {
             return .running(running)
         }
         let build = Build(Task.detached(priority: .userInitiated) {
+            #if DEBUG
             buildGate?()
+            #endif
             try Task.checkCancellation()
             return try sceneAssets(item)
         })
@@ -276,11 +280,12 @@ enum EngineSupport {
 
     private static func leave(_ key: String, _ build: Build) {
         cacheLock.lock()
-        defer { cacheLock.unlock() }
         build.waiters -= 1
-        guard build.waiters <= 0 else { return }
-        build.task.cancel()
-        if inFlight[key] === build { inFlight[key] = nil }
+        let last = build.waiters <= 0
+        if last, inFlight[key] === build { inFlight[key] = nil }
+        cacheLock.unlock()
+        // Outside the lock: a cancellation handler that touched the cache would otherwise wait for it for ever.
+        if last { build.task.cancel() }
     }
 
     private static func finish(_ key: String, _ build: Build, _ assets: SceneAssets?) {

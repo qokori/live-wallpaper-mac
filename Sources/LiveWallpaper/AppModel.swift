@@ -182,6 +182,15 @@ final class AppModel {
             guard let self, self.syncSystemWallpaper, !source.isPage else { return }
             self.applyFrame(of: source, toDisplay: uuid)
         }
+        controller.onQualityRolledBack = { [weak self] quality in
+            guard let self, self.renderQuality != quality else { return }
+            let asked = self.renderQuality
+            self.renderQuality = quality
+            self.notice = Notice(
+                title: "Качество сцены не применилось",
+                text: "Сцена не нарисовалась на уровне «\(asked.title)», возвращён «\(quality.title)»."
+            )
+        }
         controller.onFailure = { [weak self] source, error in
             self?.notice = Notice(title: "Не удалось показать «\(source.title)»", text: error.localizedDescription)
         }

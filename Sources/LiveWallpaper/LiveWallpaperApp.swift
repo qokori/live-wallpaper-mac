@@ -13,6 +13,7 @@ struct LiveWallpaperApp: App {
         } label: {
             Image(nsImage: Logo.menuBar(playing: delegate.model.isPlaying))
                 .renderingMode(.template)
+                .accessibilityLabel("Live Wallpaper")
         }
         .menuBarExtraStyle(.menu)
     }

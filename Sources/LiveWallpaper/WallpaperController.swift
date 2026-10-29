@@ -51,6 +51,8 @@ final class WallpaperController {
     var onChange: (() -> Void)?
     var onShown: ((String, WallpaperSource) -> Void)?
     var onFailure: ((WallpaperSource, Error) -> Void)?
+    /// A scene's page failed at a new quality and went back to this one.
+    var onQualityRolledBack: ((RenderQuality) -> Void)?
 
     func reconcile(sourceFor: (String) -> WallpaperSource?) {
         var screens: [ScreenReconciler.Screen] = []
@@ -205,6 +207,7 @@ final class WallpaperController {
     private func show(_ content: WallpaperContent, of source: WallpaperSource, on id: String, name: String, frame: NSRect) {
         let wallpaper = ScreenWallpaper(displayUUID: id, source: source, content: content, frame: frame)
         wallpaper.setScaling(scalingFor(id))
+        (content as? WebContent)?.qualityRolledBack = { [weak self] quality in self?.onQualityRolledBack?(quality) }
         wallpaper.onVisibilityChange = { [weak self] in self?.updatePlayback() }
         wallpaper.onReady = { [weak self, weak wallpaper] in
             guard let self, let wallpaper else { return }

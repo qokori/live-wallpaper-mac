@@ -116,3 +116,4 @@ in the window.
   bigger screen keeps them small); the app still holds full-size pictures and the reduction happens in the page, so
   the economy level saves page memory but not app memory. Videos inside scenes are decoded whole and ignore the
   quality level; ordinary videos and GIFs are not affected by the scene settings.
+- Scenes: a scene card is cached by its package and `project.json`, not by loose files in the project folder (read when there is no package); an edit to such a file shows after the app restarts.

@@ -41,6 +41,10 @@ final class WebContent: NSObject, WallpaperContent, WKNavigationDelegate {
     private var reloadGeneration = 0
     /// The old page's picture covers the web view until the new page has drawn.
     private var coveredByReload = false
+    /// Told when a failed reload put the old quality back, so the settings can follow the screen.
+    /// Seconds a reload may take before its cover comes off; tests shorten it.
+    var reloadTimeout: Double = 30
+    var qualityRolledBack: (@MainActor (RenderQuality) -> Void)?
     private var playing = false
     private var frameRate: Int
     private var quality: RenderQuality
@@ -172,6 +176,21 @@ final class WebContent: NSObject, WallpaperContent, WKNavigationDelegate {
                 coveredByReload = true
             }
             webView.load(URLRequest(url: SceneSchemeHandler.entry(quality: self.quality)))
+            watchReload(generation)
+        }
+    }
+
+    /// A reload that never reports (neither drawn nor failed) must not keep the old picture on screen for ever: after
+    /// the first load's 30 s the cover comes off and the page shows whatever it has.
+    private func watchReload(_ generation: Int) {
+        let seconds = reloadTimeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, generation == self.reloadGeneration, !self.stopped, self.reloadingFrom != nil || self.coveredByReload else { return }
+                Log.event("\(self.label): scene reload at quality \(self.quality.rawValue) did not report in \(Int(seconds)) s, the picture of the old page is removed")
+                self.reloadingFrom = nil
+                self.reloadFinished()
+            }
         }
     }
 
@@ -194,8 +213,12 @@ final class WebContent: NSObject, WallpaperContent, WKNavigationDelegate {
         reloadingFrom = nil
         Log.event("\(label): scene failed at quality \(quality.rawValue) (\(text)), back to \(back.rawValue)")
         quality = back
-        webView.load(URLRequest(url: SceneSchemeHandler.entry(quality: back)))
         reloadGeneration += 1
+        webView.load(URLRequest(url: SceneSchemeHandler.entry(quality: back)))
+        // The page that came back may fail as well; the cover must not stay then.
+        reloadingFrom = nil
+        watchReload(reloadGeneration)
+        qualityRolledBack?(back)
         return true
     }
 
@@ -254,7 +277,13 @@ final class WebContent: NSObject, WallpaperContent, WKNavigationDelegate {
     }
 
     /// What the renderer reports once it has drawn, for the log.
-    private func sceneMessage(_ message: [String: Any]) {
+    func sceneMessage(_ message: [String: Any]) {
+        // A message from a page this one replaced (the quality changed again, or while the first page loaded) is not
+        // about the page on screen.
+        if let from = message["q"] as? String, from != quality.rawValue {
+            Log.event("\(label): message from a page of quality \(from) ignored, now \(quality.rawValue)")
+            return
+        }
         switch message["type"] as? String {
         case "ready":
             Log.event("\(label): scene drawn")
