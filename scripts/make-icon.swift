@@ -9,7 +9,7 @@ if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--icon" {
     let bundle = URL(filePath: CommandLine.arguments[2])
     try FileManager.default.createDirectory(at: bundle.appending(path: "Assets"), withIntermediateDirectories: true)
     try Data(Logo.iconLayerSVG().utf8).write(to: bundle.appending(path: "Assets/waves.svg"))
-    // White background, black waves; in the dark appearance the other way round. Tinted and clear are made by the system.
+    // White background, black waves; in the dark appearance the other way round. Tinted renders layers by luminance, so the waves get a white tinted fill (black would vanish).
     let json = """
     {
       "fill": { "solid": "srgb:1.00000,1.00000,1.00000,1.00000" },
@@ -24,7 +24,8 @@ if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--icon" {
               "name": "waves",
               "glass": false,
               "fill-specializations": [
-                { "appearance": "dark", "value": { "solid": "srgb:1.00000,1.00000,1.00000,1.00000" } }
+                { "appearance": "dark", "value": { "solid": "srgb:1.00000,1.00000,1.00000,1.00000" } },
+                { "appearance": "tinted", "value": { "solid": "srgb:1.00000,1.00000,1.00000,1.00000" } }
               ]
             }
           ],
