@@ -16,7 +16,7 @@ swift test                              # logic tests and the app model / main w
 SKIP_INSTALL=1 ./scripts/build-app.sh   # build only
 ```
 
-The bundle is ad-hoc signed and not notarized. The logo (black wavy stripes) is drawn by code (`Sources/LiveWallpaper/Logo.swift`, used by `scripts/make-icon.swift` for the app icon and as a template image for the menu bar and the window) and the icon is rebuilt with every `build-app.sh`.
+The bundle is ad-hoc signed and not notarized. The logo (black wavy stripes) is drawn by code (`Sources/LiveWallpaper/Logo.swift`, used by `scripts/make-icon.swift` for the app icon and as a template image for the menu bar and the window) and the icon is rebuilt with every `build-app.sh`: `AppIcon.icns` (older systems, the .dmg volume icon) and `Assets.car` with the Icon Composer icon (`scripts/make-assets.sh`: `make-icon.swift --icon` writes `icon.json` and the waves layer, `actool` compiles it), so the Dock recolours the icon with the macOS theme (Tinted, Clear, Dark). Outside an .app (`swift run`) the logo is set as the Dock icon at run time.
 
 ### Installer disk image
 

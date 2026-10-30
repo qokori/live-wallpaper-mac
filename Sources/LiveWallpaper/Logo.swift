@@ -12,24 +12,54 @@ enum Logo {
     }
 
     /// Horizontal stripes in `field`, each bent by a sine wave whose phase grows with the stripe: they "flow".
-    /// `wavy: false` draws them straight (the paused state of the menu bar mark).
-    private static func drawStripes(_ ctx: CGContext, count: Int, wavy: Bool, color: NSColor) {
+    /// `wavy: false` draws them straight (the paused state of the menu bar mark). Points on the 1024-point canvas, y up.
+    private static func stripeLines(count: Int, wavy: Bool) -> [(points: [CGPoint], width: CGFloat)] {
         let pitch = field.width / CGFloat(count)
+        return (0..<count).map { i in
+            let base = field.minY + pitch * (CGFloat(i) + 0.5)
+            let points = stride(from: CGFloat(60), through: 964, by: 4).map { x -> CGPoint in
+                let bend = wavy ? pitch * 0.55 * sin((x - 100) / 824 * 2 * .pi + CGFloat(i) * 0.55) : 0
+                return CGPoint(x: x, y: base + bend)
+            }
+            return (points, pitch * 0.5)
+        }
+    }
+
+    private static func drawStripes(_ ctx: CGContext, count: Int, wavy: Bool, color: NSColor) {
         NSGraphicsContext.saveGraphicsState()
         defer { NSGraphicsContext.restoreGraphicsState() }
         color.setStroke()
-        for i in 0..<count {
-            let base = field.minY + pitch * (CGFloat(i) + 0.5)
+        for line in stripeLines(count: count, wavy: wavy) {
             let path = NSBezierPath()
-            var x: CGFloat = 60
-            while x <= 964 {
-                let bend = wavy ? pitch * 0.55 * sin((x - 100) / 824 * 2 * .pi + CGFloat(i) * 0.55) : 0
-                if x == 60 { path.move(to: NSPoint(x: x, y: base + bend)) } else { path.line(to: NSPoint(x: x, y: base + bend)) }
-                x += 4
-            }
-            path.lineWidth = pitch * 0.5
+            path.move(to: line.points[0])
+            for point in line.points.dropFirst() { path.line(to: point) }
+            path.lineWidth = line.width
             path.stroke()
         }
+    }
+
+    /// The stripes as the SVG layer of an Icon Composer icon (`.icon`): the same drawing, black, on a transparent 1024
+    /// canvas. The system icon grid has no margin there (the system cuts the tile), so the 824-point tile of
+    /// `iconPNG` is stretched over the whole canvas and the stripes with it.
+    static func iconLayerSVG(stripes: Int = 9) -> String {
+        let k = 1024.0 / 824.0
+        func x(_ value: CGFloat) -> String { String(format: "%.2f", (value - 100) * k) }
+        func y(_ value: CGFloat) -> String { String(format: "%.2f", 1024 - (value - 100) * k) }
+        let clip = String(format: "x=\"%.2f\" y=\"%.2f\" width=\"%.2f\" height=\"%.2f\" rx=\"%.2f\"",
+                          (field.minX - 100) * k, 1024 - (field.maxY - 100) * k, field.width * k, field.height * k, 125 * k)
+        var paths = ""
+        for line in stripeLines(count: stripes, wavy: true) {
+            let d = line.points.enumerated().map { "\($0.offset == 0 ? "M" : "L")\(x($0.element.x)) \(y($0.element.y))" }.joined(separator: " ")
+            paths += "    <path d=\"\(d)\" fill=\"none\" stroke=\"#000000\" stroke-width=\"\(String(format: "%.2f", line.width * k))\"/>\n"
+        }
+        return """
+        <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+          <defs><clipPath id="field"><rect \(clip)/></clipPath></defs>
+          <g clip-path="url(#field)">
+        \(paths)  </g>
+        </svg>
+
+        """
     }
 
     private static var fieldShape: NSBezierPath { NSBezierPath(roundedRect: field, xRadius: 125, yRadius: 125) }

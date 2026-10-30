@@ -27,7 +27,9 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     func show() {
         NSApp.setActivationPolicy(.regular)
-        NSApp.applicationIconImage = AppIcon.image
+        // In an .app the Dock draws the bundle's icon (Assets.car), which the system tints with the theme; a picture set
+        // here would stay as it is. Outside a bundle (`swift run`) there is no icon to draw, so the logo is set.
+        if !AppIcon.isBundled { NSApp.applicationIconImage = AppIcon.image }
         let window = window ?? makeWindow()
         self.window = window
         window.makeKeyAndOrderFront(nil)
@@ -99,13 +101,9 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 }
 
-/// The Dock icon while the window is open: the bundled icon, or the logo drawn on the spot outside an .app.
+/// The Dock icon while the window is open: the bundle's own in an .app, or the logo drawn on the spot outside one.
 enum AppIcon {
-    @MainActor static let image: NSImage = {
-        // The bundled icon (scripts/make-icon.swift) when running from the .app; the same drawing otherwise.
-        if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"), let bundled = NSImage(contentsOf: url) {
-            return bundled
-        }
-        return Logo.icon(size: 512)
-    }()
+    static var isBundled: Bool { Bundle.main.bundleURL.pathExtension == "app" }
+
+    @MainActor static let image: NSImage = Logo.icon(size: 512)
 }

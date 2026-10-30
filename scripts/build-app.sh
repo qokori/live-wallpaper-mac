@@ -23,6 +23,9 @@ cp "$BIN_PATH" "$APP_DIR/Contents/MacOS/$APP_NAME"
 strip -S -x "$APP_DIR/Contents/MacOS/$APP_NAME"
 # The app icon is drawn by code (Sources/LiveWallpaper/Logo.swift, built by scripts/make-icon.sh), so it is rebuilt with the app.
 "$ROOT/scripts/make-icon.sh" "$APP_DIR/Contents/Resources/AppIcon.icns"
+# The same drawing as an Icon Composer icon, compiled by actool: macOS recolours it for Tinted/Clear/Dark (CFBundleIconName).
+# The .icns stays for older systems, the volume icon of the .dmg and its preview.
+"$ROOT/scripts/make-assets.sh" "$APP_DIR/Contents/Resources/Assets.car"
 
 cat > "$APP_DIR/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -36,6 +39,8 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
     <key>CFBundleDisplayName</key>
     <string>Live Wallpaper</string>
     <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleIconName</key>
     <string>AppIcon</string>
     <key>CFBundleExecutable</key>
     <string>$APP_NAME</string>

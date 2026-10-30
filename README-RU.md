@@ -22,7 +22,7 @@ SKIP_INSTALL=1 ./scripts/build-app.sh    # только build/, ничего н�
 open ~/Applications/LiveWallpaper.app
 ```
 
-Сборка universal (arm64 + x86_64), подпись ad-hoc, без нотаризации. Логотип (чёрные волнистые полосы) рисуется кодом (`Sources/LiveWallpaper/Logo.swift`; `scripts/make-icon.swift` берёт его для иконки приложения, строка меню и окно — тот же рисунок как template-картинка), иконка пересобирается при каждом `build-app.sh`.
+Сборка universal (arm64 + x86_64), подпись ad-hoc, без нотаризации. Логотип (чёрные волнистые полосы) рисуется кодом (`Sources/LiveWallpaper/Logo.swift`; `scripts/make-icon.swift` берёт его для иконки приложения, строка меню и окно — тот же рисунок как template-картинка), иконка пересобирается при каждом `build-app.sh`: `AppIcon.icns` (старые системы, значок тома .dmg) и `Assets.car` с иконкой Icon Composer (`scripts/make-assets.sh`: `make-icon.swift --icon` пишет `icon.json` и слой волн, `actool` их компилирует), поэтому Dock перекрашивает иконку темой macOS (Tinted, Clear, Dark). Вне .app (`swift run`) логотип ставится как иконка Dock во время работы.
 
 ### Установочный образ
 
@@ -401,6 +401,6 @@ WindowServer / GPU / мощности системы «до и после» не
 - `Sources/LiveWallpaper/` — приложение: обои на рабочем столе (видео, веб, контроллер экранов, системные
   события, картинка рабочего стола), меню; `Window/` — главное окно (библиотека, экраны, настройки).
 - `examples/` — примеры веб-обоев.
-- `scripts/build-app.sh` — сборка .app; `make-icon.sh` / `make-icon.swift` — иконка; `make-zip.sh` — zip выпуска; `make-dmg.sh`, `dmg-background.swift`, `dmg-settings.py` — установочный образ.
+- `scripts/build-app.sh` — сборка .app; `make-icon.sh` / `make-icon.swift` — иконка (.icns и .icon); `make-assets.sh` — `Assets.car` через `actool`; `make-zip.sh` — zip выпуска; `make-dmg.sh`, `dmg-background.swift`, `dmg-settings.py` — установочный образ.
 - `scripts/dev/` — ручные проверки: `windows.swift` (слои окон, только чтение), `fullscreen-probe.swift`,
   `virtual-display.m` (приватный `CGVirtualDisplay`, только для проверки, в приложение не входит), `measure.sh`.
