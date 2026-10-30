@@ -28,7 +28,16 @@ struct MenuContent: View {
             .disabled(!model.canRestoreWallpaper)
         Toggle("Запускать при входе", isOn: $model.launchAtLogin)
         Divider()
+        if model.updates.isEnabled { updateItems }
         Button("Выйти") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
+    }
+
+    @ViewBuilder private var updateItems: some View {
+        let updates = model.updates
+        Button("Проверить обновления…") { updates.checkNow() }
+            .disabled(!updates.canCheck)
+        Toggle("Обновлять автоматически", isOn: Bindable(updates).autoUpdate)
+        Divider()
     }
 }

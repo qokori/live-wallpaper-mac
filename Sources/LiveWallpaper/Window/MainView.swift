@@ -476,6 +476,14 @@ private struct SettingsView: View {
                     Panel("Запуск") {
                         Toggle("Запускать при входе", isOn: $model.launchAtLogin)
                     }
+                    if model.updates.isEnabled {
+                        Panel("Обновления") {
+                            Toggle("Обновлять автоматически", isOn: Bindable(model.updates).autoUpdate)
+                            Button("Проверить обновления…") { model.updates.checkNow() }
+                                .disabled(!model.updates.canCheck)
+                            Hint("Приложение смотрит выпуски на GitHub при запуске и раз в сутки. Обновление проверяется подписью EdDSA, затем приложение заменяет себя и запускается снова. Если выключить, перед установкой оно спросит. Идущее перекодирование GIF при перезапуске начнётся заново.")
+                        }
+                    }
                 }
             }
             .padding(20)

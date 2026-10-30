@@ -65,6 +65,33 @@ curl -fsSL https://raw.githubusercontent.com/qokori/live-wallpaper-mac/main/scri
 запущено, скрипт просит его закрыть и ничего не меняет. Приложение по-прежнему подписано ad-hoc и не нотаризовано. Скрипт:
 [scripts/install.sh](scripts/install.sh).
 
+## Обновления
+
+Внутри `.app` программа сама обновляется через [Sparkle 2](https://sparkle-project.org) (версия 2.10.0 закреплена в `Package.swift`)
+из релизов этого репозитория на GitHub. Лента — файл `appcast.xml`, приложенный к каждому релизу (`SUFeedURL` =
+`https://github.com/qokori/live-wallpaper-mac/releases/latest/download/appcast.xml`). Проверка при запуске и раз в 24 часа. Перед
+установкой каждое обновление проверяется подписью EdDSA по открытому ключу из `Info.plist` (`SUPublicEDKey`), затем приложение
+заменяет себя и запускается снова.
+
+- **Меню и окно:** «Проверить обновления…» и переключатель «Обновлять автоматически» (по умолчанию включён: это
+  `automaticallyDownloadsUpdates` Sparkle; если выключить, Sparkle спросит перед установкой). Под `swift run` (не `.app`)
+  обновление выключено.
+- Идущее перекодирование GIF после перезапуска начнётся заново.
+- `scripts/build-app.sh` кладёт `Sparkle.framework` в `Contents/Frameworks`, добавляет rpath `@executable_path/../Frameworks` и
+  подписывает ad-hoc изнутри наружу (XPC-службы Sparkle, `Updater.app` и `Autoupdate`, затем фреймворк, затем приложение; без
+  `--deep` при подписи). `codesign --verify --deep --strict` проходит.
+- **Выпуск релиза** (мейнтейнер): собрать zip через `scripts/make-zip.sh`, затем
+  `scripts/make-appcast.sh <версия> --zip LiveWallpaper-<версия>.zip --notes release-notes.md` пишет `appcast.xml` рядом с zip:
+  подписывает zip через `sign_update --ed-key-file`, проверяет, что приложение внутри именно этой версии, и ставит в `enclosure`
+  ссылку на zip этого же релиза. `appcast.xml` загружается вместе с zip, `.dmg` и файлами `.sha256`.
+  `scripts/test-updates.sh` проверяет собранное приложение и цепочку подписи (одноразовый ключ, без сети).
+- **Ключ подписи** — обычное зерно Ed25519 в `~/.config/live-wallpaper/sparkle_ed25519.key` (папка 700, файл 600); создаётся
+  `scripts/make-sparkle-key.swift` без связки ключей. В git не попадает; в репозитории только открытая часть
+  (`SPARKLE_PUBLIC_KEY` в `scripts/build-app.sh`). **Сделайте копию** (менеджер паролей или зашифрованный том): у кого ключ, тот
+  может выпускать обновления, а если он потерян, уже установленные копии примут обновление только с новым ключом, их придётся
+  один раз поставить вручную (`scripts/install.sh`).
+- Приложение подписано ad-hoc и не нотаризовано, как раньше; обновления защищает подпись EdDSA от Sparkle.
+
 ## Главное окно
 
 Открывается пунктом меню «Открыть Live Wallpaper…», при запуске из «Программ» и по клику на иконку в Dock.
@@ -398,7 +425,7 @@ WindowServer / GPU / мощности системы «до и после» не
 - `Sources/WallpaperCore/` — логика без AppKit: `PausePolicy`, `ScreenReconciler`, `DesktopPictureMemory`,
   `WallpaperAssignments`, `WallpaperScaling` / `ScalingChoices`, `WallpaperLibrary` / `LibraryStore` / `ApplyTarget`, `WebAddress` / `LocalPage` / `DesktopPointer`, `WebPageScript`, `LoopSeamMeter`, `JSONValue` (записи библиотеки, которые эта версия не читает).
 - `Sources/WallpaperEngineKit/` — проекты Wallpaper Engine без AppKit: `EngineProject` (project.json), `PKGArchive`, `EngineLocation`, `EngineFileSystem`, `TexFile` / `DXTDecoder` (текстуры), `SceneDocument` / `SceneAssets` / `SceneRendererPage` (сцена и её страница), `EngineWebShim`, `EngineInspector`.
-- `Sources/LiveWallpaper/` — приложение: обои на рабочем столе (видео, веб, контроллер экранов, системные
+- `Sources/LiveWallpaper/` — приложение (`UpdateModel` — обновление через Sparkle): обои на рабочем столе (видео, веб, контроллер экранов, системные
   события, картинка рабочего стола), меню; `Window/` — главное окно (библиотека, экраны, настройки).
 - `examples/` — примеры веб-обоев.
 - `scripts/build-app.sh` — сборка .app; `make-icon.sh` / `make-icon.swift` — иконка (.icns и .icon); `make-assets.sh` — `Assets.car` через `actool`; `make-zip.sh` — zip выпуска; `make-dmg.sh`, `dmg-background.swift`, `dmg-settings.py` — установочный образ.

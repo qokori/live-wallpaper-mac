@@ -156,6 +156,8 @@ final class AppModel {
     @ObservationIgnored private var reserved: Set<String> = []
     /// The name of the picture a video was made from, for its entry in the library.
     @ObservationIgnored private var originalNames: [String: String] = [:]
+    /// Self-update (Sparkle); does nothing outside an `.app`. Created with the model, so tests (not an `.app`) never start it.
+    @ObservationIgnored let updates = UpdateModel()
     @ObservationIgnored private let controller = WallpaperController()
     @ObservationIgnored private let monitor = SystemMonitor()
     @ObservationIgnored private let pointer = PointerForwarder()

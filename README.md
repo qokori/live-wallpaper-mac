@@ -58,6 +58,32 @@ No sudo. A file fetched by `curl` gets no quarantine mark, so Gatekeeper shows n
 never touches the quarantine attribute. If the app is running, the script asks you to quit it and changes nothing. The app is
 still ad-hoc signed and not notarized. Read the script first if you like: [scripts/install.sh](scripts/install.sh).
 
+## Updates
+
+Inside an `.app` the program updates itself with [Sparkle 2](https://sparkle-project.org) (pinned to 2.10.0 in `Package.swift`)
+from the GitHub releases of this repository. The feed is `appcast.xml`, a file attached to each release
+(`SUFeedURL` = `https://github.com/qokori/live-wallpaper-mac/releases/latest/download/appcast.xml`). It checks on launch and
+every 24 hours. Every update is verified with an EdDSA signature against the public key in `Info.plist` (`SUPublicEDKey`) before
+it is installed, then the app replaces itself and starts again.
+
+- **Menu bar and window:** «Проверить обновления…» and the toggle «Обновлять автоматически» (on by default: it maps to Sparkle's
+  `automaticallyDownloadsUpdates`; when off, Sparkle asks before it installs). Under `swift run` (not an `.app`) the updater is off.
+- A running GIF conversion starts again after the restart.
+- `scripts/build-app.sh` embeds `Sparkle.framework` into `Contents/Frameworks`, adds the rpath `@executable_path/../Frameworks`
+  and signs ad-hoc from the inside out (Sparkle's XPC services, `Updater.app` and `Autoupdate`, then the framework, then the app;
+  no `--deep` signing). `codesign --verify --deep --strict` passes.
+- **Publishing a release** (the maintainer): build the zip with `scripts/make-zip.sh`, then
+  `scripts/make-appcast.sh <version> --zip LiveWallpaper-<version>.zip --notes release-notes.md` writes `appcast.xml` next to the
+  zip: it signs the zip with `sign_update --ed-key-file`, checks that the app inside has that version and points the enclosure at
+  the versioned zip of the same release. Upload `appcast.xml` together with the zip, `.dmg` and the `.sha256` files.
+  `scripts/test-updates.sh` checks the built app and the signing chain (a throwaway key, no network).
+- **The signing key** is a plain Ed25519 seed in `~/.config/live-wallpaper/sparkle_ed25519.key` (folder mode 700, file 600), made
+  by `scripts/make-sparkle-key.swift` without the keychain. It is never committed; only the public half is in the repo
+  (`SPARKLE_PUBLIC_KEY` in `scripts/build-app.sh`). **Back it up** (a password manager or an encrypted volume): whoever holds it
+  can publish updates, and if it is lost the installed copies accept updates signed only by a new key, so they must be
+  reinstalled by hand once (`scripts/install.sh`).
+- The app is ad-hoc signed and not notarized, as before; Sparkle's EdDSA signature is what protects the update channel.
+
 ## Features
 
 - Video (mp4/mov, H.264, HEVC): `AVQueuePlayer` + `AVPlayerLooper` over the video track only, muted, no gap at
